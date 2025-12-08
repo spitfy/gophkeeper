@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-func NewLogger(env string) *slog.Logger {
+func New(env string) *slog.Logger {
 	var log *slog.Logger
 
 	switch env {

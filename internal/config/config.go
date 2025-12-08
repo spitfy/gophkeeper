@@ -29,10 +29,12 @@ type defaultConfig struct {
 	LogLevel        string
 	Secret          string
 	Env             string
+	Migrations      string
 }
 
 type db struct {
 	DatabaseURI string `env:"DATABASE_URI"`
+	Migrations  string `env:"MIGRATIONS_PATH"`
 }
 
 type server struct {
@@ -43,9 +45,9 @@ type logger struct {
 	LogLevel string `env:"LOG_LEVEL" envDefault:"info"`
 }
 
-func NewConfig() *Config {
+func MustLoad() *Config {
 	if err := godotenv.Load(envPath); err != nil {
-		log.Println("No .env file found, relying on environment variables")
+		log.Fatalln("No .env file found, relying on environment variables")
 	}
 
 	viper.AutomaticEnv()
@@ -55,14 +57,18 @@ func NewConfig() *Config {
 		LogLevel:    viper.GetString("log_level"),
 		Secret:      viper.GetString("secret"),
 		Env:         viper.GetString("app_env"),
+		Migrations:  viper.GetString("migrations_path"),
 	}
 	if d.Secret == "" {
 		d.Secret = SecretKey
 	}
 
 	config := Config{
-		Env:    d.Env,
-		DB:     db{DatabaseURI: d.DatabaseURI},
+		Env: d.Env,
+		DB: db{
+			DatabaseURI: d.DatabaseURI,
+			Migrations:  d.Migrations,
+		},
 		Server: server{RunAddress: d.RunAddress},
 		Logger: logger{LogLevel: d.LogLevel},
 	}

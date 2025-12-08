@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gophkeeper
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  gophkeeper:
+    image: gophkeeper:latest
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URI=${DATABASE_URI_DOCKER}
+      - RUN_ADDRESS=${RUN_ADDRESS}
+      - SECRET=${SECRET}
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
