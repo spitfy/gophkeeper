@@ -46,25 +46,27 @@ func NewAPI(log *slog.Logger, storage storage.Storage) *chi.Mux {
 	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		"bearer": {Type: "http", Scheme: "bearer"},
 	}
-	// Создаем Huma API на mux
-	humaAPI := humachi.New(mux, config)
 
-	// ✅ ПУБЛИЧНЫЕ операции (без security)
-	huma.Register(humaAPI, api.userRegisterOp(), api.userRegister)
-	huma.Register(humaAPI, api.userLoginOp(), api.userLogin)
+	// Публичные операции регистрируем на mux
+	publicAPI := humachi.New(mux, config)
 
-	// ✅ ЗАЩИЩЕННЫЕ операции (с security: ["bearer": []])
-	huma.Register(humaAPI, api.recordsListOp(), api.recordsList)
-	huma.Register(humaAPI, api.recordsCreateOp(), api.recordsCreate)
-	huma.Register(humaAPI, api.recordsGetOp(), api.recordsGet)
-	huma.Register(humaAPI, api.recordsUpdateOp(), api.recordsUpdate)
-	huma.Register(humaAPI, api.recordsDeleteOp(), api.recordsDelete)
+	// Защищенные операции регистрируем на защищенном роутере с middleware
+	protectedRouter := chi.NewRouter()
+	protectedRouter.Use(api.authMiddleware)
+	// Монтируем защищенный роутер на /api в корневом роутере
+	mux.Mount("/api", protectedRouter)
+	protectedAPI := humachi.New(protectedRouter, config)
 
-	// ✅ Middleware на /api/*
-	apiRouter := chi.NewRouter()
-	apiRouter.Use(api.authMiddleware)
-	apiRouter.Handle("/*", mux)
-	mux.Mount("/api", apiRouter)
+	// Регистрируем публичные операции
+	huma.Register(publicAPI, api.userRegisterOp(), api.userRegister)
+	huma.Register(publicAPI, api.userLoginOp(), api.userLogin)
+
+	// Регистрируем защищенные операции
+	huma.Register(protectedAPI, api.recordsListOp(), api.recordsList)
+	huma.Register(protectedAPI, api.recordsCreateOp(), api.recordsCreate)
+	huma.Register(protectedAPI, api.recordsGetOp(), api.recordsGet)
+	huma.Register(protectedAPI, api.recordsUpdateOp(), api.recordsUpdate)
+	huma.Register(protectedAPI, api.recordsDeleteOp(), api.recordsDelete)
 
 	return mux
 }
@@ -145,20 +147,32 @@ func (a *API) recordsDeleteOp() huma.Operation {
 	}
 }
 
+type contextKey string
+
+const userIDKey contextKey = "userID"
+
 // === MIDDLEWARE ===
 func (a *API) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 		if len(token) < 7 || token[:7] != "Bearer " {
-			_ = huma.Error401Unauthorized("Unauthorized", nil)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "Unauthorized",
+			})
 			return
 		}
 		userID, err := a.validateSession(r.Context(), token[7:])
 		if err != nil {
-			_ = huma.Error401Unauthorized("Unauthorized", nil)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "Unauthorized",
+			})
 			return
 		}
-		ctx := context.WithValue(r.Context(), "userID", userID)
+		ctx := context.WithValue(r.Context(), userIDKey, userID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -255,8 +269,13 @@ func (a *API) userLogin(ctx context.Context, input *UserLoginInput) (*UserLoginO
 	tokenHash := sha256.Sum256([]byte(token))
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	if err := a.storage.CreateSession(ctx, userID, hex.EncodeToString(tokenHash[:]), expiresAt); err != nil {
-		return nil, fmt.Errorf("create session: %w", err)
+	if err = a.storage.CreateSession(ctx, userID, hex.EncodeToString(tokenHash[:]), expiresAt); err != nil {
+		err = fmt.Errorf("create session: %w", err)
+	}
+
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
 	}
 
 	return &UserLoginOutput{
@@ -267,7 +286,7 @@ func (a *API) userLogin(ctx context.Context, input *UserLoginInput) (*UserLoginO
 		}(struct{ Token, Status, Error string }{
 			Token:  token,
 			Status: "Ok",
-			Error:  err.Error(),
+			Error:  errMsg,
 		}),
 	}, nil
 }
