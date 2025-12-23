@@ -1,0 +1,92 @@
+package user
+
+import (
+	"context"
+	"fmt"
+	"github.com/danielgtaylor/huma/v2"
+	"golang.org/x/exp/slog"
+	"gophkeeper/internal/domain/session"
+	"net/http"
+)
+
+type Handler struct {
+	service Servicer
+	session session.Servicer
+	log     *slog.Logger
+}
+
+func NewHandler(service Servicer, session session.Servicer, log *slog.Logger) *Handler {
+	return &Handler{
+		service: service,
+		session: session,
+		log:     log,
+	}
+}
+
+func (h *Handler) SetupRoutes(api huma.API) {
+	huma.Register(api, h.registerOp(), h.register)
+	huma.Register(api, h.loginOp(), h.login)
+}
+
+func (h *Handler) registerOp() huma.Operation {
+	return huma.Operation{
+		OperationID: "user-register",
+		Method:      http.MethodPost,
+		Path:        "/user/register",
+		Summary:     "Регистрация пользователя",
+		Tags:        []string{"users"},
+	}
+}
+
+func (h *Handler) loginOp() huma.Operation {
+	return huma.Operation{
+		OperationID: "user-login",
+		Method:      http.MethodPost,
+		Path:        "/user/login",
+		Summary:     "Авторизация пользователя",
+		Tags:        []string{"users"},
+	}
+}
+
+func (h *Handler) register(ctx context.Context, input *registerInput) (*registerOutput, error) {
+	userID, err := h.service.Register(ctx, input.Body)
+	if err != nil {
+		return &registerOutput{
+			Body: registerResponse{Status: "Error", Error: err.Error()},
+		}, nil
+	}
+
+	return &registerOutput{
+		Body: registerResponse{ID: userID, Status: "Ok"},
+	}, nil
+}
+
+func (h *Handler) login(ctx context.Context, input *loginInput) (*loginOutput, error) {
+	user, err := h.service.Authenticate(ctx, input.Body)
+	if err != nil {
+		return &loginOutput{
+			Body: loginResponse{
+				Status: "Error",
+				Error:  "Invalid credentials",
+			},
+		}, nil
+	}
+
+	token, err := h.session.Create(ctx, user.ID)
+	if err != nil {
+		err = fmt.Errorf("create session: %w", err)
+	}
+
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+
+	return &loginOutput{
+		Body: loginResponse{
+			Token:  token,
+			Status: "Ok",
+			Error:  errMsg,
+		},
+	}, nil
+}

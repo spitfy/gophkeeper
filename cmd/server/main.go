@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"golang.org/x/exp/slog"
 	"gophkeeper/internal/config"
+	"gophkeeper/internal/domain/session"
+	"gophkeeper/internal/domain/user"
 	"gophkeeper/internal/handler"
 	"gophkeeper/internal/storage/postgres"
 	"gophkeeper/internal/utils/logger"
@@ -32,9 +34,15 @@ func main() {
 	}
 	defer storage.Close()
 
+	userRepo := user.NewRepo(storage, log)
+	userService := user.NewService(userRepo, log)
+	sessionRepo := session.NewRepo(storage, log)
+	sessionService := session.NewService(sessionRepo, log)
+	userHandler := user.NewHandler(userService, sessionService, log)
+
 	log.Info("starting gophkeeper", slog.String("env", cfg.Env), slog.String("version", "1.0"))
 
-	router := handler.NewAPI(log, storage)
+	router := handler.NewAPI(log, storage, handler.Handler{User: userHandler})
 
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
 		server := &http.Server{

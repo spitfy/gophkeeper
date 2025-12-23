@@ -15,21 +15,36 @@ package handler
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/exp/slog"
+	"gophkeeper/internal/domain/user"
 	"gophkeeper/internal/storage"
 	"net/http"
 	"time"
 )
+
+type UserServicer interface {
+	CreateUser(ctx context.Context, login, passwordHash string) (int, error)
+	AuthUser(ctx context.Context, login, password string) (int, string, error)
+}
+
+type RecordServicer interface {
+	ListRecords(ctx context.Context, userID int) ([]storage.Record, error)
+	CreateRecord(ctx context.Context, userID int, typ, encryptedData string, meta json.RawMessage) (int, error)
+	GetRecord(ctx context.Context, userID, recordID int) (*storage.Record, error)
+	UpdateRecord(ctx context.Context, userID, recordID int, typ, encryptedData string, meta json.RawMessage) error
+	DeleteRecord(ctx context.Context, userID, recordID int) error
+}
+
+type SessionServicer interface {
+	CreateSession(ctx context.Context, userID int, tokenHash string, expiresAt time.Time) error
+	ValidateSession(ctx context.Context, tokenHash string) (int, error)
+}
 
 // API содержит зависимости для хендлеров
 type API struct {
@@ -37,8 +52,12 @@ type API struct {
 	storage storage.Storage
 }
 
+type Handler struct {
+	User *user.Handler
+}
+
 // NewAPI создает API с ВСЕМИ операциями через huma.Register
-func NewAPI(log *slog.Logger, storage storage.Storage) *chi.Mux {
+func NewAPI(log *slog.Logger, storage storage.Storage, handler Handler) *chi.Mux {
 	mux := chi.NewMux()
 	api := &API{log: log, storage: storage}
 
@@ -58,8 +77,9 @@ func NewAPI(log *slog.Logger, storage storage.Storage) *chi.Mux {
 	protectedAPI := humachi.New(protectedRouter, config)
 
 	// Регистрируем публичные операции
-	huma.Register(publicAPI, api.userRegisterOp(), api.userRegister)
-	huma.Register(publicAPI, api.userLoginOp(), api.userLogin)
+	//huma.Register(publicAPI, api.userRegisterOp(), api.userRegister)
+	//huma.Register(publicAPI, api.userLoginOp(), api.userLogin)
+	handler.User.SetupRoutes(publicAPI)
 
 	// Регистрируем защищенные операции
 	huma.Register(protectedAPI, api.recordsListOp(), api.recordsList)
@@ -72,80 +92,6 @@ func NewAPI(log *slog.Logger, storage storage.Storage) *chi.Mux {
 }
 
 // === OPERATIONS ===
-func (a *API) userRegisterOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "user-register",
-		Method:      http.MethodPost,
-		Path:        "/user/register",
-		Summary:     "Регистрация пользователя",
-		Tags:        []string{"users"},
-	}
-}
-
-func (a *API) userLoginOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "user-login",
-		Method:      http.MethodPost,
-		Path:        "/user/login",
-		Summary:     "Авторизация пользователя",
-		Tags:        []string{"users"},
-	}
-}
-
-func (a *API) recordsListOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-list",
-		Method:      http.MethodGet,
-		Path:        "/api/records",
-		Summary:     "Список записей пользователя",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
-}
-
-func (a *API) recordsCreateOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-create",
-		Method:      http.MethodPost,
-		Path:        "/api/records",
-		Summary:     "Создать запись",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
-}
-
-func (a *API) recordsGetOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-get",
-		Method:      http.MethodGet,
-		Path:        "/api/records/{id}",
-		Summary:     "Получить запись",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
-}
-
-func (a *API) recordsUpdateOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-update",
-		Method:      http.MethodPut,
-		Path:        "/api/records/{id}",
-		Summary:     "Обновить запись",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
-}
-
-func (a *API) recordsDeleteOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-delete",
-		Method:      http.MethodDelete,
-		Path:        "/api/records/{id}",
-		Summary:     "Удалить запись",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
-}
 
 type contextKey string
 
@@ -183,113 +129,6 @@ func (a *API) validateSession(ctx context.Context, token string) (int, error) {
 }
 
 // === ПОЛЬЗОВАТЕЛИ ===
-type UserRegisterInput struct {
-	Body struct {
-		Login    string `json:"login" maxLength:"20"`
-		Password string `json:"password" minLength:"4" maxLength:"20"`
-	}
-}
-
-type UserRegisterOutput struct {
-	Body struct {
-		ID     int    `json:"user_id"`
-		Status string `json:"status"`
-		Error  string `json:"error,omitempty"`
-	}
-}
-
-func (a *API) userRegister(ctx context.Context, input *UserRegisterInput) (*UserRegisterOutput, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(input.Body.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, fmt.Errorf("hash password: %w", err)
-	}
-
-	userID, err := a.storage.CreateUser(ctx, input.Body.Login, string(hash))
-	if err != nil {
-		return &UserRegisterOutput{
-			Body: struct {
-				ID     int    `json:"user_id"`
-				Status string `json:"status"`
-				Error  string `json:"error,omitempty"`
-			}(struct {
-				ID     int    `json:"user_id"`
-				Status string `json:"status"`
-				Error  string `json:"error"`
-			}{Status: "Error", Error: err.Error()}),
-		}, nil
-	}
-
-	return &UserRegisterOutput{
-		Body: struct {
-			ID     int    `json:"user_id"`
-			Status string `json:"status"`
-			Error  string `json:"error,omitempty"`
-		}(struct {
-			ID     int    `json:"user_id"`
-			Status string `json:"status"`
-			Error  string `json:"error"`
-		}{ID: userID, Status: "Ok"}),
-	}, nil
-}
-
-type UserLoginInput struct {
-	Body struct {
-		Login    string `json:"login"`
-		Password string `json:"password"`
-	}
-}
-
-type UserLoginOutput struct {
-	Body struct {
-		Token  string `json:"token"`
-		Status string `json:"status"`
-		Error  string `json:"error"`
-	}
-}
-
-func (a *API) userLogin(ctx context.Context, input *UserLoginInput) (*UserLoginOutput, error) {
-	userID, _, err := a.storage.AuthUser(ctx, input.Body.Login, input.Body.Password)
-	if err != nil {
-		return &UserLoginOutput{
-			Body: struct {
-				Token  string `json:"token"`
-				Status string `json:"status"`
-				Error  string `json:"error"`
-			}(struct{ Token, Status, Error string }{
-				Status: "Error",
-				Error:  "Invalid credentials",
-			}),
-		}, nil
-	}
-
-	// Генерируем сессионный токен
-	tokenBytes := make([]byte, 32)
-	rand.Read(tokenBytes)
-	token := base64.URLEncoding.EncodeToString(tokenBytes)
-	tokenHash := sha256.Sum256([]byte(token))
-
-	expiresAt := time.Now().Add(24 * time.Hour)
-	if err = a.storage.CreateSession(ctx, userID, hex.EncodeToString(tokenHash[:]), expiresAt); err != nil {
-		err = fmt.Errorf("create session: %w", err)
-	}
-
-	errMsg := ""
-	if err != nil {
-		errMsg = err.Error()
-	}
-
-	return &UserLoginOutput{
-		Body: struct {
-			Token  string `json:"token"`
-			Status string `json:"status"`
-			Error  string `json:"error"`
-		}(struct{ Token, Status, Error string }{
-			Token:  token,
-			Status: "Ok",
-			Error:  errMsg,
-		}),
-	}, nil
-}
 
 // === ЗАПИСИ ===
 type RecordsListOutput struct {

@@ -30,6 +30,10 @@ func (s *Storage) Close() error {
 	return nil
 }
 
+func (s *Storage) Pool() *pgxpool.Pool {
+	return s.db
+}
+
 // === ПОЛЬЗОВАТЕЛИ ===
 func (s *Storage) CreateUser(ctx context.Context, login, passwordHash string) (int, error) {
 	var userID int
