@@ -7,7 +7,7 @@ import (
 
 type RecordItem struct {
 	ID           int             `json:"id"`
-	Type         Type            `json:"type"`
+	Type         string          `json:"type"`
 	Meta         json.RawMessage `json:"meta"`
 	Version      int             `json:"version"`
 	LastModified time.Time       `json:"last_modified"`
