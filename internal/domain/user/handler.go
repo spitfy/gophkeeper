@@ -6,7 +6,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/exp/slog"
 	"gophkeeper/internal/domain/session"
-	"net/http"
 )
 
 type Handler struct {
@@ -26,26 +25,6 @@ func NewHandler(service Servicer, session session.Servicer, log *slog.Logger) *H
 func (h *Handler) SetupRoutes(api huma.API) {
 	huma.Register(api, h.registerOp(), h.register)
 	huma.Register(api, h.loginOp(), h.login)
-}
-
-func (h *Handler) registerOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "user-register",
-		Method:      http.MethodPost,
-		Path:        "/user/register",
-		Summary:     "Регистрация пользователя",
-		Tags:        []string{"users"},
-	}
-}
-
-func (h *Handler) loginOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "user-login",
-		Method:      http.MethodPost,
-		Path:        "/user/login",
-		Summary:     "Авторизация пользователя",
-		Tags:        []string{"users"},
-	}
 }
 
 func (h *Handler) register(ctx context.Context, input *registerInput) (*registerOutput, error) {

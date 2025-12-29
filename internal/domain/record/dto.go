@@ -15,6 +15,7 @@ type RecordItem struct {
 
 type listResponse struct {
 	Records []RecordItem `json:"records"`
+	Total   int          `json:"total"`
 }
 
 type listOutput struct {
@@ -22,21 +23,40 @@ type listOutput struct {
 }
 
 type createInput struct {
-	Body createRequest
+	Body request
 }
 
-type createOutput struct {
-	Body createResponse
+type output struct {
+	Body response
 }
 
-type createRequest struct {
+type findOutput struct {
+	Body findResponse
+}
+
+type findInput struct {
+	ID int `path:"id" example:"1" doc:"ID записи"`
+}
+
+type updateInput struct {
+	ID   int `path:"id" example:"1" doc:"ID записи"`
+	Body request
+}
+
+type request struct {
 	Type          string          `json:"type"`
 	EncryptedData string          `json:"data" format:"binary"` // base64
 	Meta          json.RawMessage `json:"meta"`
 }
 
-type createResponse struct {
+type response struct {
 	ID     int    `json:"id"`
 	Status string `json:"status"`
-	Error  string `json:"error"`
+	Error  string `json:"error,omitempty"`
+}
+
+type findResponse struct {
+	Status string  `json:"status"`
+	Record *Record `json:"record"`
+	Error  string  `json:"error,omitempty"`
 }

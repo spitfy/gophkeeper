@@ -22,6 +22,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/exp/slog"
+	"gophkeeper/internal/domain/record"
 	"gophkeeper/internal/domain/user"
 	"gophkeeper/internal/storage"
 	"net/http"
@@ -53,7 +54,8 @@ type API struct {
 }
 
 type Handler struct {
-	User *user.Handler
+	User   *user.Handler
+	Record *record.Handler
 }
 
 // NewAPI создает API с ВСЕМИ операциями через huma.Register
@@ -82,11 +84,12 @@ func NewAPI(log *slog.Logger, storage storage.Storage, handler Handler) *chi.Mux
 	handler.User.SetupRoutes(publicAPI)
 
 	// Регистрируем защищенные операции
-	huma.Register(protectedAPI, api.recordsListOp(), api.recordsList)
-	huma.Register(protectedAPI, api.recordsCreateOp(), api.recordsCreate)
-	huma.Register(protectedAPI, api.recordsGetOp(), api.recordsGet)
-	huma.Register(protectedAPI, api.recordsUpdateOp(), api.recordsUpdate)
-	huma.Register(protectedAPI, api.recordsDeleteOp(), api.recordsDelete)
+	handler.Record.SetupRoutes(protectedAPI)
+	//huma.Register(protectedAPI, api.recordsListOp(), api.recordsList)
+	//huma.Register(protectedAPI, api.recordsCreateOp(), api.Create)
+	//huma.Register(protectedAPI, api.recordsGetOp(), api.recordsGet)
+	//huma.Register(protectedAPI, api.recordsUpdateOp(), api.recordsUpdate)
+	//huma.Register(protectedAPI, api.recordsDeleteOp(), api.recordsDelete)
 
 	return mux
 }
@@ -186,7 +189,7 @@ type RecordOutput struct {
 	}
 }
 
-func (a *API) recordsCreate(ctx context.Context, input *RecordCreateInput) (*RecordOutput, error) {
+func (a *API) Create(ctx context.Context, input *RecordCreateInput) (*RecordOutput, error) {
 	userID := ctx.Value("userID").(int)
 
 	// TODO: расшифровка/проверка data на клиенте, здесь только хранение

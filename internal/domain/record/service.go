@@ -28,8 +28,8 @@ type Service struct {
 }
 
 type Servicer interface {
-	List(ctx context.Context, userID int) (ListResponse, error)
-	Create(ctx context.Context, userID int, typ, encryptedData string, meta json.RawMessage) (CreateResponse, error)
+	list(ctx context.Context, userID int) (listResponse, error)
+	create(ctx context.Context, userID int, typ, encryptedData string, meta json.RawMessage) (response, error)
 	Find(ctx context.Context, userID, recordID int) (*Record, error)
 	Update(ctx context.Context, userID, recordID int, typ, encryptedData string, meta json.RawMessage) error
 	Delete(ctx context.Context, userID, recordID int) error
@@ -39,19 +39,6 @@ type Servicer interface {
 	GetModifiedSince(ctx context.Context, userID int, since time.Time) ([]Record, error)
 	BatchCreate(ctx context.Context, userID int, records []CreateRequest) (BatchCreateResponse, error)
 	BatchUpdate(ctx context.Context, userID int, updates []UpdateRequest) (BatchUpdateResponse, error)
-}
-
-// Request/Response types
-type ListResponse struct {
-	Records []RecordItem `json:"records"`
-	Total   int          `json:"total"`
-}
-
-type CreateResponse struct {
-	ID      int    `json:"id"`
-	Status  string `json:"status"`
-	Error   string `json:"error,omitempty"`
-	Version int    `json:"version"`
 }
 
 type CreateRequest struct {
@@ -111,11 +98,11 @@ func NewService(repo Repository, log *slog.Logger) Servicer {
 }
 
 // List returns all records for a user
-func (s *Service) List(ctx context.Context, userID int) (ListResponse, error) {
+func (s *Service) list(ctx context.Context, userID int) (listResponse, error) {
 	records, err := s.repo.List(ctx, userID)
 	if err != nil {
 		s.log.Error("failed to list records", "user_id", userID, "error", err)
-		return ListResponse{}, fmt.Errorf("list records: %w", err)
+		return listResponse{}, fmt.Errorf("list records: %w", err)
 	}
 
 	items := make([]RecordItem, len(records))
@@ -129,22 +116,19 @@ func (s *Service) List(ctx context.Context, userID int) (ListResponse, error) {
 		}
 	}
 
-	return ListResponse{
+	return listResponse{
 		Records: items,
 		Total:   len(items),
 	}, nil
 }
 
 // Create creates a new record
-func (s *Service) Create(ctx context.Context, userID int, typ, encryptedData string, meta json.RawMessage) (CreateResponse, error) {
-	// Validate input
+func (s *Service) create(ctx context.Context, userID int, typ, encryptedData string, meta json.RawMessage) (response, error) {
 	if typ == "" || encryptedData == "" {
-		return CreateResponse{}, ErrInvalidData
+		return response{}, ErrInvalidData
 	}
 
-	// Generate checksum if not provided
 	checksum := s.generateChecksum(encryptedData, typ, meta)
-
 	record := &Record{
 		UserID:        userID,
 		Type:          typ,
@@ -158,7 +142,7 @@ func (s *Service) Create(ctx context.Context, userID int, typ, encryptedData str
 	recordID, err := s.repo.Create(ctx, record)
 	if err != nil {
 		s.log.Error("failed to create record", "user_id", userID, "type", typ, "error", err)
-		return CreateResponse{
+		return response{
 			ID:     0,
 			Status: "Error",
 			Error:  err.Error(),
@@ -167,10 +151,9 @@ func (s *Service) Create(ctx context.Context, userID int, typ, encryptedData str
 
 	s.log.Info("record created successfully", "record_id", recordID, "user_id", userID, "type", typ)
 
-	return CreateResponse{
-		ID:      recordID,
-		Status:  "Ok",
-		Version: record.Version,
+	return response{
+		ID:     recordID,
+		Status: "Ok",
 	}, nil
 }
 
@@ -185,7 +168,6 @@ func (s *Service) Find(ctx context.Context, userID, recordID int) (*Record, erro
 		return nil, fmt.Errorf("find record: %w", err)
 	}
 
-	// Check if record is deleted
 	if record.DeletedAt != nil {
 		return nil, ErrRecordDeleted
 	}

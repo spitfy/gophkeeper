@@ -4,77 +4,26 @@ import (
 	"context"
 	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/exp/slog"
-	"gophkeeper/internal/domain/session"
-	"net/http"
 )
 
 type Handler struct {
 	service Servicer
-	session session.Servicer
 	log     *slog.Logger
+}
+
+func NewHandler(service Servicer, log *slog.Logger) *Handler {
+	return &Handler{
+		service: service,
+		log:     log,
+	}
 }
 
 func (h *Handler) SetupRoutes(api huma.API) {
 	huma.Register(api, h.listOp(), h.list)
 	huma.Register(api, h.createOp(), h.create)
-	huma.Register(api, h.getOp(), h.get)
+	huma.Register(api, h.findOp(), h.find)
 	huma.Register(api, h.updateOp(), h.update)
 	huma.Register(api, h.deleteOp(), h.delete)
-}
-
-func (h *Handler) listOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-list",
-		Method:      http.MethodGet,
-		Path:        "/api/records",
-		Summary:     "Список записей пользователя",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
-}
-
-func (h *Handler) createOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-create",
-		Method:      http.MethodPost,
-		Path:        "/api/records",
-		Summary:     "Создать запись",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
-}
-
-func (h *Handler) getOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-get",
-		Method:      http.MethodGet,
-		Path:        "/api/records/{id}",
-		Summary:     "Получить запись",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
-}
-
-func (h *Handler) updateOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-update",
-		Method:      http.MethodPut,
-		Path:        "/api/records/{id}",
-		Summary:     "Обновить запись",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
-}
-
-func (h *Handler) deleteOp() huma.Operation {
-	return huma.Operation{
-		OperationID: "records-delete",
-		Method:      http.MethodDelete,
-		Path:        "/api/records/{id}",
-		Summary:     "Удалить запись",
-		Tags:        []string{"records"},
-		Security:    []map[string][]string{{"bearer": {}}},
-	}
 }
 
 func (h *Handler) list(ctx context.Context, _ *struct{}) (*listOutput, error) {
@@ -89,19 +38,75 @@ func (h *Handler) list(ctx context.Context, _ *struct{}) (*listOutput, error) {
 	}, nil
 }
 
-func (h *Handler) create(ctx context.Context, input *createInput) (*createOutput, error) {
+func (h *Handler) find(ctx context.Context, input *findInput) (*findOutput, error) {
 	userID := ctx.Value("userID").(int)
 
-	// TODO: расшифровка/проверка data на клиенте, здесь только хранение
-	response, err := h.service.create(ctx, userID, input.Body.Type,
-		input.Body.EncryptedData, input.Body.Meta)
+	record, err := h.service.Find(ctx, userID, input.ID)
 	if err != nil {
-		return &createOutput{
+		return &findOutput{
+			Body: findResponse{
+				Status: "Error",
+			},
+		}, err
+	}
+
+	return &findOutput{
+		Body: findResponse{
+			Status: "Ok",
+			Record: record,
+		},
+	}, nil
+}
+
+func (h *Handler) create(ctx context.Context, input *createInput) (*output, error) {
+	userID := ctx.Value("userID").(int)
+
+	response, err := h.service.create(ctx, userID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
+	if err != nil {
+		return &output{
 			Body: response,
 		}, err
 	}
 
-	return &createOutput{
+	return &output{
 		Body: response,
+	}, nil
+}
+
+func (h *Handler) update(ctx context.Context, input *updateInput) (*output, error) {
+	userID := ctx.Value("userID").(int)
+
+	err := h.service.Update(ctx, userID, input.ID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
+	if err != nil {
+		return &output{
+			Body: response{
+				ID:     input.ID,
+				Status: "Error",
+			},
+		}, err
+	}
+	return &output{
+		Body: response{
+			ID:     input.ID,
+			Status: "Ok",
+		},
+	}, nil
+}
+
+func (h *Handler) delete(ctx context.Context, input *updateInput) (*output, error) {
+	userID := ctx.Value("userID").(int)
+
+	err := h.service.Delete(ctx, userID, input.ID)
+	if err != nil {
+		return &output{
+			Body: response{
+				Status: "Error",
+			},
+		}, err
+	}
+	return &output{
+		Body: response{
+			Status: "Ok",
+		},
 	}, nil
 }
