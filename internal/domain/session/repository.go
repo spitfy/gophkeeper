@@ -37,8 +37,7 @@ func (r *repository) Validate(ctx context.Context, tokenHash string) (int, error
 	var userID int
 	err := r.db.Pool().QueryRow(ctx,
 		`SELECT user_id FROM sessions 
-         WHERE token_hash = decode($1, 'hex') AND expires_at > NOW()
-         AND deleted_at IS NULL`,
+         WHERE token_hash = decode($1, 'hex') AND expires_at > NOW()`,
 		tokenHash).Scan(&userID)
 
 	if err != nil {

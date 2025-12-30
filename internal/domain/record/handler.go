@@ -20,7 +20,7 @@ func NewHandler(service Servicer, log *slog.Logger) *Handler {
 
 func (h *Handler) SetupRoutes(api huma.API) {
 	huma.Register(api, h.listOp(), h.list)
-	huma.Register(api, h.createOp(), h.create)
+	huma.Register(api, h.createOp(), h.Create)
 	huma.Register(api, h.findOp(), h.find)
 	huma.Register(api, h.updateOp(), h.update)
 	huma.Register(api, h.deleteOp(), h.delete)
@@ -58,34 +58,34 @@ func (h *Handler) find(ctx context.Context, input *findInput) (*findOutput, erro
 	}, nil
 }
 
-func (h *Handler) create(ctx context.Context, input *createInput) (*output, error) {
+func (h *Handler) Create(ctx context.Context, input *createInput) (*Output, error) {
 	userID := ctx.Value("userID").(int)
 
 	response, err := h.service.create(ctx, userID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
 	if err != nil {
-		return &output{
+		return &Output{
 			Body: response,
 		}, err
 	}
 
-	return &output{
+	return &Output{
 		Body: response,
 	}, nil
 }
 
-func (h *Handler) update(ctx context.Context, input *updateInput) (*output, error) {
+func (h *Handler) update(ctx context.Context, input *updateInput) (*Output, error) {
 	userID := ctx.Value("userID").(int)
 
 	err := h.service.Update(ctx, userID, input.ID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
 	if err != nil {
-		return &output{
+		return &Output{
 			Body: response{
 				ID:     input.ID,
 				Status: "Error",
 			},
 		}, err
 	}
-	return &output{
+	return &Output{
 		Body: response{
 			ID:     input.ID,
 			Status: "Ok",
@@ -93,18 +93,18 @@ func (h *Handler) update(ctx context.Context, input *updateInput) (*output, erro
 	}, nil
 }
 
-func (h *Handler) delete(ctx context.Context, input *updateInput) (*output, error) {
+func (h *Handler) delete(ctx context.Context, input *updateInput) (*Output, error) {
 	userID := ctx.Value("userID").(int)
 
 	err := h.service.Delete(ctx, userID, input.ID)
 	if err != nil {
-		return &output{
+		return &Output{
 			Body: response{
 				Status: "Error",
 			},
 		}, err
 	}
-	return &output{
+	return &Output{
 		Body: response{
 			Status: "Ok",
 		},

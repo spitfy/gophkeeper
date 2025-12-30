@@ -9,6 +9,7 @@ import (
 	"gophkeeper/internal/domain/session"
 	"gophkeeper/internal/domain/user"
 	"gophkeeper/internal/handler"
+	"gophkeeper/internal/handler/middleware/auth"
 	"gophkeeper/internal/storage/postgres"
 	"gophkeeper/internal/utils/logger"
 	"gophkeeper/internal/utils/logger/sl"
@@ -47,7 +48,10 @@ func main() {
 
 	log.Info("starting gophkeeper", slog.String("env", cfg.Env), slog.String("version", "1.0"))
 
-	router := handler.NewAPI(log, storage, handler.Handler{User: userHandler, Record: recordHandler})
+	router := handler.NewAPI(
+		handler.Handler{User: userHandler, Record: recordHandler},
+		handler.Middleware{Auth: auth.New(sessionService, log)},
+	)
 
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
 		server := &http.Server{

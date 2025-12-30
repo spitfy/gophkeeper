@@ -14,6 +14,3 @@ CREATE INDEX IF NOT EXISTS idx_records_deleted_at ON records(deleted_at) WHERE d
 CREATE INDEX IF NOT EXISTS idx_records_user_device ON records(user_id, device_id) WHERE device_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_records_user_type_modified ON records(user_id, type, last_modified DESC);
 
-UPDATE records
-SET checksum = encode(sha256(encrypted_data || type::bytea || meta::bytea), 'hex')
-WHERE checksum IS NULL;

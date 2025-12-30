@@ -26,7 +26,7 @@ type createInput struct {
 	Body request
 }
 
-type output struct {
+type Output struct {
 	Body response
 }
 
