@@ -45,7 +45,7 @@ type updateInput struct {
 
 type request struct {
 	Type          string          `json:"type"`
-	EncryptedData string          `json:"data" format:"binary"` // base64
+	EncryptedData string          `json:"data"` // base64
 	Meta          json.RawMessage `json:"meta"`
 }
 

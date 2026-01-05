@@ -9,6 +9,7 @@ import (
 	"gophkeeper/internal/domain/session"
 	"gophkeeper/internal/domain/user"
 	"gophkeeper/internal/handler"
+	"gophkeeper/internal/handler/middleware"
 	"gophkeeper/internal/handler/middleware/auth"
 	"gophkeeper/internal/storage/postgres"
 	"gophkeeper/internal/utils/logger"
@@ -36,21 +37,24 @@ func main() {
 	}
 	defer storage.Close()
 
-	userRepo := user.NewRepo(storage, log)
-	userService := user.NewService(userRepo, log)
 	sessionRepo := session.NewRepo(storage, log)
 	sessionService := session.NewService(sessionRepo, log)
-	userHandler := user.NewHandler(userService, sessionService, log)
+	authMW := auth.New(sessionService, log)
+	middlewares := middleware.NewContainer()
+
+	userRepo := user.NewRepo(storage, log)
+	userService := user.NewService(userRepo, log)
+	userHandler := user.NewHandler(userService, sessionService, log, middlewares.GetAllAndClear())
 
 	recordRepo := record.NewRepo(storage, log)
 	recordService := record.NewService(recordRepo, log)
-	recordHandler := record.NewHandler(recordService, log)
+	middlewares.Add(authMW.Middleware())
+	recordHandler := record.NewHandler(recordService, log, middlewares.GetAllAndClear())
 
 	log.Info("starting gophkeeper", slog.String("env", cfg.Env), slog.String("version", "1.0"))
 
 	router := handler.NewAPI(
 		handler.Handler{User: userHandler, Record: recordHandler},
-		handler.Middleware{Auth: auth.New(sessionService, log)},
 	)
 
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {

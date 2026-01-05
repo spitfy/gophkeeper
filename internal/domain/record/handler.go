@@ -4,17 +4,20 @@ import (
 	"context"
 	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/exp/slog"
+	"gophkeeper/internal/handler/middleware/auth"
 )
 
 type Handler struct {
-	service Servicer
-	log     *slog.Logger
+	service    Servicer
+	log        *slog.Logger
+	middleware huma.Middlewares
 }
 
-func NewHandler(service Servicer, log *slog.Logger) *Handler {
+func NewHandler(service Servicer, log *slog.Logger, mws huma.Middlewares) *Handler {
 	return &Handler{
-		service: service,
-		log:     log,
+		service:    service,
+		log:        log,
+		middleware: mws,
 	}
 }
 
@@ -27,7 +30,11 @@ func (h *Handler) SetupRoutes(api huma.API) {
 }
 
 func (h *Handler) list(ctx context.Context, _ *struct{}) (*listOutput, error) {
-	userID := ctx.Value("userID").(int)
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, huma.Error401Unauthorized("Unauthorized")
+	}
+
 	records, err := h.service.list(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -39,7 +46,10 @@ func (h *Handler) list(ctx context.Context, _ *struct{}) (*listOutput, error) {
 }
 
 func (h *Handler) find(ctx context.Context, input *findInput) (*findOutput, error) {
-	userID := ctx.Value("userID").(int)
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, huma.Error401Unauthorized("Unauthorized")
+	}
 
 	record, err := h.service.Find(ctx, userID, input.ID)
 	if err != nil {
@@ -59,7 +69,10 @@ func (h *Handler) find(ctx context.Context, input *findInput) (*findOutput, erro
 }
 
 func (h *Handler) Create(ctx context.Context, input *createInput) (*Output, error) {
-	userID := ctx.Value("userID").(int)
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, huma.Error401Unauthorized("Unauthorized")
+	}
 
 	response, err := h.service.create(ctx, userID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
 	if err != nil {
@@ -74,7 +87,10 @@ func (h *Handler) Create(ctx context.Context, input *createInput) (*Output, erro
 }
 
 func (h *Handler) update(ctx context.Context, input *updateInput) (*Output, error) {
-	userID := ctx.Value("userID").(int)
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, huma.Error401Unauthorized("Unauthorized")
+	}
 
 	err := h.service.Update(ctx, userID, input.ID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
 	if err != nil {
@@ -94,7 +110,10 @@ func (h *Handler) update(ctx context.Context, input *updateInput) (*Output, erro
 }
 
 func (h *Handler) delete(ctx context.Context, input *updateInput) (*Output, error) {
-	userID := ctx.Value("userID").(int)
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, huma.Error401Unauthorized("Unauthorized")
+	}
 
 	err := h.service.Delete(ctx, userID, input.ID)
 	if err != nil {

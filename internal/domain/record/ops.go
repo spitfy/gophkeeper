@@ -13,6 +13,7 @@ func (h *Handler) listOp() huma.Operation {
 		Summary:     "Список записей пользователя",
 		Tags:        []string{"records"},
 		Security:    []map[string][]string{{"bearer": {}}},
+		Middlewares: h.middleware,
 	}
 }
 
@@ -24,6 +25,7 @@ func (h *Handler) createOp() huma.Operation {
 		Summary:     "Создать запись",
 		Tags:        []string{"records"},
 		Security:    []map[string][]string{{"bearer": {}}},
+		Middlewares: h.middleware,
 	}
 }
 
@@ -35,6 +37,7 @@ func (h *Handler) findOp() huma.Operation {
 		Summary:     "Получить запись",
 		Tags:        []string{"records"},
 		Security:    []map[string][]string{{"bearer": {}}},
+		Middlewares: h.middleware,
 	}
 }
 
@@ -46,6 +49,7 @@ func (h *Handler) updateOp() huma.Operation {
 		Summary:     "Обновить запись",
 		Tags:        []string{"records"},
 		Security:    []map[string][]string{{"bearer": {}}},
+		Middlewares: h.middleware,
 	}
 }
 
@@ -57,5 +61,6 @@ func (h *Handler) deleteOp() huma.Operation {
 		Summary:     "Удалить запись",
 		Tags:        []string{"records"},
 		Security:    []map[string][]string{{"bearer": {}}},
+		Middlewares: h.middleware,
 	}
 }

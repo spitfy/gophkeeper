@@ -9,16 +9,18 @@ import (
 )
 
 type Handler struct {
-	service Servicer
-	session session.Servicer
-	log     *slog.Logger
+	service    Servicer
+	session    session.Servicer
+	log        *slog.Logger
+	middleware huma.Middlewares
 }
 
-func NewHandler(service Servicer, session session.Servicer, log *slog.Logger) *Handler {
+func NewHandler(service Servicer, session session.Servicer, log *slog.Logger, middleware huma.Middlewares) *Handler {
 	return &Handler{
-		service: service,
-		session: session,
-		log:     log,
+		service:    service,
+		session:    session,
+		log:        log,
+		middleware: middleware,
 	}
 }
 

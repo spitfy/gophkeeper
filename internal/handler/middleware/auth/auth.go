@@ -3,9 +3,12 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"golang.org/x/exp/slog"
 	"gophkeeper/internal/domain/session"
 	"net/http"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
 type Auth struct {
@@ -16,36 +19,56 @@ type Auth struct {
 func New(session session.Servicer, log *slog.Logger) *Auth {
 	return &Auth{
 		session: session,
-		log:     log,
+		log:     log.With("auth middleware"),
 	}
 }
 
 type contextKey string
 
-const userIDKey contextKey = "userID"
+const UserIDKey contextKey = "userID"
 
-// === MIDDLEWARE ===
-func (a *Auth) Proceed(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
+// Middleware возвращает middleware для Huma с сигнатурой func(ctx Context, next func(Context))
+func (a *Auth) Middleware() func(huma.Context, func(huma.Context)) {
+	return func(ctx huma.Context, next func(huma.Context)) {
+		token := ctx.Header("Authorization")
+
 		if len(token) < 7 || token[:7] != "Bearer " {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{
+			a.log.Error("wrong Bearer: ", token)
+			ctx.SetStatus(http.StatusUnauthorized)
+			ctx.SetHeader("Content-Type", "application/json")
+
+			w := ctx.BodyWriter()
+			json.NewEncoder(w).Encode(map[string]string{
 				"error": "Unauthorized",
 			})
 			return
 		}
-		userID, err := a.session.Validate(r.Context(), token[7:])
+
+		// Валидируем токен
+		userID, err := a.session.Validate(ctx.Context(), token[7:])
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{
+			a.log.Error(fmt.Sprintf("validate error: %w", err))
+			ctx.SetStatus(http.StatusUnauthorized)
+			ctx.SetHeader("Content-Type", "application/json")
+
+			w := ctx.BodyWriter()
+			err = json.NewEncoder(w).Encode(map[string]string{
 				"error": "Unauthorized",
 			})
+			if err != nil {
+				a.log.Error(fmt.Sprintf("json encod: %w", err))
+			}
 			return
 		}
-		ctx := context.WithValue(r.Context(), userIDKey, userID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+
+		newCtx := context.WithValue(ctx.Context(), UserIDKey, userID)
+		newHumaCtx := huma.WithContext(ctx, newCtx)
+
+		next(newHumaCtx)
+	}
+}
+
+func GetUserID(ctx context.Context) (int, bool) {
+	userID, ok := ctx.Value(UserIDKey).(int)
+	return userID, ok
 }

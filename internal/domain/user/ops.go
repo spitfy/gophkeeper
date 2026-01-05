@@ -12,6 +12,7 @@ func (h *Handler) registerOp() huma.Operation {
 		Path:        "/user/register",
 		Summary:     "Регистрация пользователя",
 		Tags:        []string{"users"},
+		Middlewares: h.middleware,
 	}
 }
 
@@ -22,5 +23,6 @@ func (h *Handler) loginOp() huma.Operation {
 		Path:        "/user/login",
 		Summary:     "Авторизация пользователя",
 		Tags:        []string{"users"},
+		Middlewares: h.middleware,
 	}
 }

@@ -173,13 +173,13 @@ func (r *repository) Create(ctx context.Context, record *Record) (int, error) {
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, version, last_modified`
 
-	data, err := hex.DecodeString(record.EncryptedData)
+	/*data, err := hex.DecodeString(record.EncryptedData)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %v", ErrInvalidData, err)
-	}
+	}*/
 
-	err = r.db.Pool().QueryRow(ctx, query,
-		record.UserID, record.Type, data, record.Meta, record.Checksum, record.DeviceID,
+	err := r.db.Pool().QueryRow(ctx, query,
+		record.UserID, record.Type, record.EncryptedData, record.Meta, record.Checksum, record.DeviceID,
 	).Scan(&record.ID, &record.Version, &record.LastModified)
 
 	if err != nil {

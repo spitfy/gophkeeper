@@ -34,7 +34,6 @@ type Middleware struct {
 // NewAPI создает *chi.Mux с ВСЕМИ операциями через huma.Register
 func NewAPI(
 	handler Handler,
-	middleware Middleware,
 ) *chi.Mux {
 	mux := chi.NewMux()
 
@@ -43,16 +42,10 @@ func NewAPI(
 		"bearer": {Type: "http", Scheme: "bearer"},
 	}
 
-	publicAPI := humachi.New(mux, config)
+	API := humachi.New(mux, config)
 
-	protectedRouter := chi.NewRouter()
-	//protectedRouter.Use(middleware.Auth.Proceed)
-	mux.Mount("/api", protectedRouter)
-
-	protectedAPI := humachi.New(protectedRouter, config)
-
-	handler.User.SetupRoutes(publicAPI)
-	handler.Record.SetupRoutes(protectedAPI)
+	handler.User.SetupRoutes(API)
+	handler.Record.SetupRoutes(API)
 
 	return mux
 }
