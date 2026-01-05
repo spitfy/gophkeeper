@@ -23,7 +23,7 @@ var (
 type Record struct {
 	ID            int             `json:"id"`
 	UserID        int             `json:"user_id"`
-	Type          string          `json:"type"`
+	Type          RecType         `json:"type"`
 	EncryptedData string          `json:"encrypted_data,omitempty"`
 	Meta          json.RawMessage `json:"meta,omitempty"`
 	Version       int             `json:"version"`

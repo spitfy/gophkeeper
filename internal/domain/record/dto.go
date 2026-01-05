@@ -7,7 +7,7 @@ import (
 
 type RecordItem struct {
 	ID           int             `json:"id"`
-	Type         string          `json:"type"`
+	Type         RecType         `json:"type"`
 	Meta         json.RawMessage `json:"meta"`
 	Version      int             `json:"version"`
 	LastModified time.Time       `json:"last_modified"`
@@ -44,7 +44,7 @@ type updateInput struct {
 }
 
 type request struct {
-	Type          string          `json:"type"`
+	Type          RecType         `json:"type" doc:"Тип записи, одно из login, text, binary, card"`
 	EncryptedData string          `json:"data"` // base64
 	Meta          json.RawMessage `json:"meta"`
 }

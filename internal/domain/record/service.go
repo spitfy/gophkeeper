@@ -29,9 +29,9 @@ type Service struct {
 
 type Servicer interface {
 	list(ctx context.Context, userID int) (listResponse, error)
-	create(ctx context.Context, userID int, typ, encryptedData string, meta json.RawMessage) (response, error)
+	create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (response, error)
 	Find(ctx context.Context, userID, recordID int) (*Record, error)
-	Update(ctx context.Context, userID, recordID int, typ, encryptedData string, meta json.RawMessage) error
+	Update(ctx context.Context, userID, recordID int, typ RecType, encryptedData string, meta json.RawMessage) error
 	Delete(ctx context.Context, userID, recordID int) error
 	SoftDelete(ctx context.Context, userID, recordID int) error
 	Search(ctx context.Context, userID int, criteria SearchCriteria) ([]Record, error)
@@ -42,7 +42,7 @@ type Servicer interface {
 }
 
 type CreateRequest struct {
-	Type          string          `json:"type"`
+	Type          RecType         `json:"type"`
 	EncryptedData string          `json:"encrypted_data"`
 	Meta          json.RawMessage `json:"meta"`
 	Checksum      string          `json:"checksum,omitempty"`
@@ -51,7 +51,7 @@ type CreateRequest struct {
 
 type UpdateRequest struct {
 	RecordID      int             `json:"record_id"`
-	Type          string          `json:"type"`
+	Type          RecType         `json:"type"`
 	EncryptedData string          `json:"encrypted_data"`
 	Meta          json.RawMessage `json:"meta"`
 	Version       int             `json:"version"`
@@ -123,7 +123,7 @@ func (s *Service) list(ctx context.Context, userID int) (listResponse, error) {
 }
 
 // Create creates a new record
-func (s *Service) create(ctx context.Context, userID int, typ, encryptedData string, meta json.RawMessage) (response, error) {
+func (s *Service) create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (response, error) {
 	if typ == "" || encryptedData == "" {
 		return response{}, ErrInvalidData
 	}
@@ -176,7 +176,7 @@ func (s *Service) Find(ctx context.Context, userID, recordID int) (*Record, erro
 }
 
 // Update updates an existing record
-func (s *Service) Update(ctx context.Context, userID, recordID int, typ, encryptedData string, meta json.RawMessage) error {
+func (s *Service) Update(ctx context.Context, userID, recordID int, typ RecType, encryptedData string, meta json.RawMessage) error {
 	// Get the current record to check permissions and get version
 	currentRecord, err := s.repo.Get(ctx, userID, recordID)
 	if err != nil {
@@ -445,8 +445,8 @@ func (s *Service) BatchUpdate(ctx context.Context, userID int, updates []UpdateR
 }
 
 // Helper method to generate checksum
-func (s *Service) generateChecksum(encryptedData, typ string, meta json.RawMessage) string {
-	data := encryptedData + typ + string(meta)
+func (s *Service) generateChecksum(encryptedData string, typ RecType, meta json.RawMessage) string {
+	data := encryptedData + typ.String() + string(meta)
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])
 }
