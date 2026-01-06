@@ -54,14 +54,14 @@ func (h *Handler) find(ctx context.Context, input *findInput) (*findOutput, erro
 	record, err := h.service.Find(ctx, userID, input.ID)
 	if err != nil {
 		return &findOutput{
-			Body: findResponse{
+			Body: FindResponse{
 				Status: "Error",
 			},
 		}, err
 	}
 
 	return &findOutput{
-		Body: findResponse{
+		Body: FindResponse{
 			Status: "Ok",
 			Record: record,
 		},
@@ -95,14 +95,14 @@ func (h *Handler) update(ctx context.Context, input *updateInput) (*Output, erro
 	err := h.service.Update(ctx, userID, input.ID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
 	if err != nil {
 		return &Output{
-			Body: response{
+			Body: Response{
 				ID:     input.ID,
 				Status: "Error",
 			},
 		}, err
 	}
 	return &Output{
-		Body: response{
+		Body: Response{
 			ID:     input.ID,
 			Status: "Ok",
 		},
@@ -118,13 +118,13 @@ func (h *Handler) delete(ctx context.Context, input *updateInput) (*Output, erro
 	err := h.service.Delete(ctx, userID, input.ID)
 	if err != nil {
 		return &Output{
-			Body: response{
+			Body: Response{
 				Status: "Error",
 			},
 		}, err
 	}
 	return &Output{
-		Body: response{
+		Body: Response{
 			Status: "Ok",
 		},
 	}, nil

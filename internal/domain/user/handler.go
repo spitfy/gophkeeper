@@ -33,12 +33,12 @@ func (h *Handler) register(ctx context.Context, input *registerInput) (*register
 	userID, err := h.service.Register(ctx, input.Body)
 	if err != nil {
 		return &registerOutput{
-			Body: registerResponse{Status: "Error", Error: err.Error()},
+			Body: RegisterResponse{Status: "Error", Error: err.Error()},
 		}, nil
 	}
 
 	return &registerOutput{
-		Body: registerResponse{ID: userID, Status: "Ok"},
+		Body: RegisterResponse{ID: userID, Status: "Ok"},
 	}, nil
 }
 
@@ -46,7 +46,7 @@ func (h *Handler) login(ctx context.Context, input *loginInput) (*loginOutput, e
 	user, err := h.service.Authenticate(ctx, input.Body)
 	if err != nil {
 		return &loginOutput{
-			Body: loginResponse{
+			Body: LoginResponse{
 				Status: "Error",
 				Error:  "Invalid credentials",
 			},
@@ -64,7 +64,7 @@ func (h *Handler) login(ctx context.Context, input *loginInput) (*loginOutput, e
 	}
 
 	return &loginOutput{
-		Body: loginResponse{
+		Body: LoginResponse{
 			Token:  token,
 			Status: "Ok",
 			Error:  errMsg,

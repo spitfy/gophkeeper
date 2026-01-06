@@ -28,8 +28,8 @@ type Service struct {
 }
 
 type Servicer interface {
-	list(ctx context.Context, userID int) (listResponse, error)
-	create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (response, error)
+	list(ctx context.Context, userID int) (ListResponse, error)
+	create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (Response, error)
 	Find(ctx context.Context, userID, recordID int) (*Record, error)
 	Update(ctx context.Context, userID, recordID int, typ RecType, encryptedData string, meta json.RawMessage) error
 	Delete(ctx context.Context, userID, recordID int) error
@@ -98,11 +98,11 @@ func NewService(repo Repository, log *slog.Logger) Servicer {
 }
 
 // List returns all records for a user
-func (s *Service) list(ctx context.Context, userID int) (listResponse, error) {
+func (s *Service) list(ctx context.Context, userID int) (ListResponse, error) {
 	records, err := s.repo.List(ctx, userID)
 	if err != nil {
 		s.log.Error("failed to list records", "user_id", userID, "error", err)
-		return listResponse{}, fmt.Errorf("list records: %w", err)
+		return ListResponse{}, fmt.Errorf("list records: %w", err)
 	}
 
 	items := make([]RecordItem, len(records))
@@ -116,16 +116,16 @@ func (s *Service) list(ctx context.Context, userID int) (listResponse, error) {
 		}
 	}
 
-	return listResponse{
+	return ListResponse{
 		Records: items,
 		Total:   len(items),
 	}, nil
 }
 
 // Create creates a new record
-func (s *Service) create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (response, error) {
+func (s *Service) create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (Response, error) {
 	if typ == "" || encryptedData == "" {
-		return response{}, ErrInvalidData
+		return Response{}, ErrInvalidData
 	}
 
 	checksum := s.generateChecksum(encryptedData, typ, meta)
@@ -142,7 +142,7 @@ func (s *Service) create(ctx context.Context, userID int, typ RecType, encrypted
 	recordID, err := s.repo.Create(ctx, record)
 	if err != nil {
 		s.log.Error("failed to create record", "user_id", userID, "type", typ, "error", err)
-		return response{
+		return Response{
 			ID:     0,
 			Status: "Error",
 			Error:  err.Error(),
@@ -151,7 +151,7 @@ func (s *Service) create(ctx context.Context, userID int, typ RecType, encrypted
 
 	s.log.Info("record created successfully", "record_id", recordID, "user_id", userID, "type", typ)
 
-	return response{
+	return Response{
 		ID:     recordID,
 		Status: "Ok",
 	}, nil
@@ -293,7 +293,6 @@ func (s *Service) GetStats(ctx context.Context, userID int) (StatsResponse, erro
 		return StatsResponse{}, fmt.Errorf("get stats: %w", err)
 	}
 
-	// Convert to structured response
 	response := StatsResponse{
 		TotalRecords: 0,
 		TotalSize:    0,

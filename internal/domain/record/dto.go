@@ -13,25 +13,25 @@ type RecordItem struct {
 	LastModified time.Time       `json:"last_modified"`
 }
 
-type listResponse struct {
+type ListResponse struct {
 	Records []RecordItem `json:"records"`
 	Total   int          `json:"total"`
 }
 
 type listOutput struct {
-	Body listResponse
+	Body ListResponse
 }
 
 type createInput struct {
-	Body request
+	Body Request
 }
 
 type Output struct {
-	Body response
+	Body Response
 }
 
 type findOutput struct {
-	Body findResponse
+	Body FindResponse
 }
 
 type findInput struct {
@@ -40,22 +40,22 @@ type findInput struct {
 
 type updateInput struct {
 	ID   int `path:"id" example:"1" doc:"ID записи"`
-	Body request
+	Body Request
 }
 
-type request struct {
+type Request struct {
 	Type          RecType         `json:"type" doc:"Тип записи, одно из login, text, binary, card"`
 	EncryptedData string          `json:"data"` // base64
 	Meta          json.RawMessage `json:"meta"`
 }
 
-type response struct {
+type Response struct {
 	ID     int    `json:"id"`
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
 }
 
-type findResponse struct {
+type FindResponse struct {
 	Status string  `json:"status"`
 	Record *Record `json:"record"`
 	Error  string  `json:"error,omitempty"`

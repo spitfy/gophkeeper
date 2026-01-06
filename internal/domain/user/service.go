@@ -8,8 +8,8 @@ import (
 )
 
 type Servicer interface {
-	Register(ctx context.Context, req baseRequest) (int, error)
-	Authenticate(ctx context.Context, req baseRequest) (User, error)
+	Register(ctx context.Context, req BaseRequest) (int, error)
+	Authenticate(ctx context.Context, req BaseRequest) (User, error)
 }
 
 type Service struct {
@@ -24,7 +24,7 @@ func NewService(repo Repository, log *slog.Logger) Servicer {
 	}
 }
 
-func (s *Service) Register(ctx context.Context, req baseRequest) (int, error) {
+func (s *Service) Register(ctx context.Context, req BaseRequest) (int, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return 0, fmt.Errorf("hash password: %w", err)
@@ -33,7 +33,7 @@ func (s *Service) Register(ctx context.Context, req baseRequest) (int, error) {
 	return s.repo.Create(ctx, req.Login, string(hash))
 }
 
-func (s *Service) Authenticate(ctx context.Context, req baseRequest) (User, error) {
+func (s *Service) Authenticate(ctx context.Context, req BaseRequest) (User, error) {
 	var user User
 	user, err := s.repo.FindByLogin(ctx, req.Login)
 	if err != nil {
