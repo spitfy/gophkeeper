@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"gophkeeper/internal/app/server/config"
-	"gophkeeper/internal/migration"
+	"gophkeeper/internal/infrastructure/migration"
 )
 
 type Storage struct {

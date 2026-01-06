@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/exp/slog"
-	"gophkeeper/internal/storage/postgres"
+	"gophkeeper/internal/infrastructure/storage/postgres"
 )
 
 var (

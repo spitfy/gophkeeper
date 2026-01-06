@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"golang.org/x/exp/slog"
-	"gophkeeper/internal/storage/postgres"
+	"gophkeeper/internal/infrastructure/storage/postgres"
 	"time"
 )
 

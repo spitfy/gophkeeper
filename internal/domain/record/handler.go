@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/exp/slog"
-	"gophkeeper/internal/handler/middleware/auth"
+	"gophkeeper/internal/infrastructure/middleware/auth"
 )
 
 type Handler struct {

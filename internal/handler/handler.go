@@ -19,7 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gophkeeper/internal/domain/record"
 	"gophkeeper/internal/domain/user"
-	"gophkeeper/internal/handler/middleware/auth"
+	"gophkeeper/internal/infrastructure/middleware/auth"
 )
 
 type Handler struct {
