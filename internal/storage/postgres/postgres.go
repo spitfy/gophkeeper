@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"gophkeeper/internal/config"
+	"gophkeeper/internal/app/server/config"
 	"gophkeeper/internal/migration"
 )
 

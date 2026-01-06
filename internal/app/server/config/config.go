@@ -75,3 +75,8 @@ func MustLoad() *Config {
 
 	return &config
 }
+
+func SaveToken(token string) interface{} {
+	_ = token
+	return nil
+}

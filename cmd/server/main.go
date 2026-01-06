@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"golang.org/x/exp/slog"
-	"gophkeeper/internal/config"
+	"gophkeeper/internal/app/server/config"
 	"gophkeeper/internal/domain/record"
 	"gophkeeper/internal/domain/session"
 	"gophkeeper/internal/domain/user"

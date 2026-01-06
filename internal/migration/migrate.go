@@ -3,7 +3,7 @@ package migration
 import (
 	"errors"
 	"fmt"
-	"gophkeeper/internal/config"
+	"gophkeeper/internal/app/server/config"
 
 	"github.com/golang-migrate/migrate/v4"
 	// Blank import required for PostgreSQL driver registration for migrations

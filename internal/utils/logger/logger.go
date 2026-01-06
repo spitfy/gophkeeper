@@ -2,7 +2,7 @@ package logger
 
 import (
 	"golang.org/x/exp/slog"
-	"gophkeeper/internal/config"
+	"gophkeeper/internal/app/server/config"
 	"gophkeeper/internal/utils/slogpretty"
 	"os"
 )
