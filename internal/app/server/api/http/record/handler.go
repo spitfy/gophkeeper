@@ -75,7 +75,7 @@ func (h *Handler) create(ctx context.Context, input *createInput) (*output, erro
 		return nil, huma.Error401Unauthorized("Unauthorized")
 	}
 
-	rec, err := h.service.Create(ctx, userID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
+	recordID, err := h.service.Create(ctx, userID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
 	if err != nil {
 		return &output{
 			Body: response{Status: "Error"},
@@ -84,7 +84,7 @@ func (h *Handler) create(ctx context.Context, input *createInput) (*output, erro
 
 	return &output{
 		Body: response{
-			ID:     rec.ID,
+			ID:     recordID,
 			Status: "Ok",
 		},
 	}, nil

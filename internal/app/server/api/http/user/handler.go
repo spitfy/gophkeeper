@@ -6,16 +6,17 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/exp/slog"
 	"gophkeeper/internal/domain/session"
+	"gophkeeper/internal/domain/user"
 )
 
 type Handler struct {
-	service    Servicer
+	service    user.Servicer
 	session    session.Servicer
 	log        *slog.Logger
 	middleware huma.Middlewares
 }
 
-func NewHandler(service Servicer, session session.Servicer, log *slog.Logger, middleware huma.Middlewares) *Handler {
+func NewHandler(service user.Servicer, session session.Servicer, log *slog.Logger, middleware huma.Middlewares) *Handler {
 	return &Handler{
 		service:    service,
 		session:    session,
@@ -30,7 +31,7 @@ func (h *Handler) SetupRoutes(api huma.API) {
 }
 
 func (h *Handler) register(ctx context.Context, input *registerInput) (*registerOutput, error) {
-	userID, err := h.service.Register(ctx, input.Body)
+	userID, err := h.service.Register(ctx, input.Body.Login, input.Body.Password)
 	if err != nil {
 		return &registerOutput{
 			Body: RegisterResponse{Status: "Error", Error: err.Error()},
@@ -43,7 +44,7 @@ func (h *Handler) register(ctx context.Context, input *registerInput) (*register
 }
 
 func (h *Handler) login(ctx context.Context, input *loginInput) (*loginOutput, error) {
-	user, err := h.service.Authenticate(ctx, input.Body)
+	u, err := h.service.Authenticate(ctx, input.Body.Login, input.Body.Password)
 	if err != nil {
 		return &loginOutput{
 			Body: LoginResponse{
@@ -53,7 +54,7 @@ func (h *Handler) login(ctx context.Context, input *loginInput) (*loginOutput, e
 		}, nil
 	}
 
-	token, err := h.session.Create(ctx, user.ID)
+	token, err := h.session.Create(ctx, u.ID)
 	if err != nil {
 		err = fmt.Errorf("create session: %w", err)
 	}

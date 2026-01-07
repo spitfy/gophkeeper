@@ -5,13 +5,7 @@ import (
 	"fmt"
 	"golang.org/x/exp/slog"
 	"gophkeeper/internal/app/server/api"
-	"gophkeeper/internal/app/server/api/http/middleware"
-	"gophkeeper/internal/app/server/api/http/middleware/auth"
-	recordAPI "gophkeeper/internal/app/server/api/http/record"
 	"gophkeeper/internal/app/server/config"
-	"gophkeeper/internal/domain/record"
-	"gophkeeper/internal/domain/session"
-	"gophkeeper/internal/domain/user"
 	"gophkeeper/internal/infrastructure/storage/postgres"
 	"gophkeeper/internal/utils/logger"
 	"gophkeeper/internal/utils/logger/sl"
@@ -38,25 +32,9 @@ func main() {
 	}
 	defer storage.Close()
 
-	sessionRepo := session.NewRepo(storage, log)
-	sessionService := session.NewService(sessionRepo, log)
-	authMW := auth.New(sessionService, log)
-	middlewares := middleware.NewContainer()
-
-	userRepo := user.NewRepo(storage, log)
-	userService := user.NewService(userRepo, log)
-	userHandler := user.NewHandler(userService, sessionService, log, middlewares.GetAllAndClear())
-
-	recordRepo := record.NewRepo(storage, log)
-	recordService := record.NewService(recordRepo, log)
-	middlewares.Add(authMW.Middleware())
-	recordHandler := recordAPI.NewHandler(recordService, log, middlewares.GetAllAndClear())
-
 	log.Info("starting gophkeeper", slog.String("env", cfg.Env), slog.String("version", "1.0"))
 
-	router := api.New(
-		api.Handler{User: userHandler, Record: recordHandler},
-	)
+	router := api.New(storage, log)
 
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
 		server := &http.Server{

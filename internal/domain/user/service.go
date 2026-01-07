@@ -8,8 +8,8 @@ import (
 )
 
 type Servicer interface {
-	Register(ctx context.Context, req BaseRequest) (int, error)
-	Authenticate(ctx context.Context, req BaseRequest) (User, error)
+	Register(ctx context.Context, login, password string) (int, error)
+	Authenticate(ctx context.Context, login, password string) (User, error)
 }
 
 type Service struct {
@@ -24,23 +24,23 @@ func NewService(repo Repository, log *slog.Logger) Servicer {
 	}
 }
 
-func (s *Service) Register(ctx context.Context, req BaseRequest) (int, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+func (s *Service) Register(ctx context.Context, login, password string) (int, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return 0, fmt.Errorf("hash password: %w", err)
 	}
 
-	return s.repo.Create(ctx, req.Login, string(hash))
+	return s.repo.Create(ctx, login, string(hash))
 }
 
-func (s *Service) Authenticate(ctx context.Context, req BaseRequest) (User, error) {
+func (s *Service) Authenticate(ctx context.Context, login, password string) (User, error) {
 	var user User
-	user, err := s.repo.FindByLogin(ctx, req.Login)
+	user, err := s.repo.FindByLogin(ctx, login)
 	if err != nil {
 		return user, ErrUserNotFound
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return user, ErrInvalidCredentials
 	}
 
