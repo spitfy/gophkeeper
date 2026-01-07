@@ -52,16 +52,16 @@ func New(storage *postgres.Storage, log *slog.Logger) *chi.Mux {
 }
 
 func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
-	sessionRepo := session.NewRepo(storage, log)
+	sessionRepo := postgres.NewSessionRepository(storage, log)
 	sessionService := session.NewService(sessionRepo, log)
 	authMW := auth.New(sessionService, log)
 	middlewares := middleware.NewContainer()
 
-	userRepo := user.NewRepo(storage, log)
+	userRepo := postgres.NewUserRepository(storage, log)
 	userService := user.NewService(userRepo, log)
 	userHandler := userAPI.NewHandler(userService, sessionService, log, middlewares.GetAllAndClear())
 
-	recordRepo := record.NewRepo(storage, log)
+	recordRepo := postgres.NewRecordRepository(storage, log)
 	recordService := record.NewService(recordRepo, log)
 	middlewares.Add(authMW.Middleware())
 	recordHandler := recordAPI.NewHandler(recordService, log, middlewares.GetAllAndClear())

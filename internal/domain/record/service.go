@@ -13,13 +13,7 @@ import (
 )
 
 // Service errors
-var (
-	ErrRecordNotFound   = errors.New("record not found")
-	ErrInvalidData      = errors.New("invalid record data")
-	ErrVersionConflict  = errors.New("record version conflict")
-	ErrPermissionDenied = errors.New("permission denied")
-	ErrRecordDeleted    = errors.New("record was deleted")
-)
+var ()
 
 // Service defines the business logic for record operations
 type Service struct {
@@ -155,7 +149,7 @@ func (s *Service) Find(ctx context.Context, userID, recordID int) (*Record, erro
 	record, err := s.repo.Get(ctx, userID, recordID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return nil, ErrRecordNotFound
+			return nil, ErrNotFound
 		}
 		s.log.Error("failed to find record", "record_id", recordID, "user_id", userID, "error", err)
 		return nil, fmt.Errorf("find record: %w", err)
@@ -174,7 +168,7 @@ func (s *Service) Update(ctx context.Context, userID, recordID int, typ RecType,
 	currentRecord, err := s.repo.Get(ctx, userID, recordID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return ErrRecordNotFound
+			return ErrNotFound
 		}
 		return fmt.Errorf("get record for update: %w", err)
 	}
@@ -200,7 +194,7 @@ func (s *Service) Update(ctx context.Context, userID, recordID int, typ RecType,
 
 	err = s.repo.Update(ctx, updatedRecord)
 	if err != nil {
-		if errors.Is(err, ErrVersionMismatch) {
+		if errors.Is(err, ErrVersionConflict) {
 			return ErrVersionConflict
 		}
 		s.log.Error("failed to update record", "record_id", recordID, "user_id", userID, "error", err)
@@ -217,7 +211,7 @@ func (s *Service) Delete(ctx context.Context, userID, recordID int) error {
 	record, err := s.repo.Get(ctx, userID, recordID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return ErrRecordNotFound
+			return ErrNotFound
 		}
 		return fmt.Errorf("get record for delete: %w", err)
 	}
@@ -248,7 +242,7 @@ func (s *Service) SoftDelete(ctx context.Context, userID, recordID int) error {
 	record, err := s.repo.Get(ctx, userID, recordID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return ErrRecordNotFound
+			return ErrNotFound
 		}
 		return fmt.Errorf("get record for soft delete: %w", err)
 	}

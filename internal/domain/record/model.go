@@ -1,20 +1,51 @@
 package record
 
-type Type string
-
-const (
-	TypePassword Type = "password"
-	TypeFile     Type = "file"
-	TypeCard     Type = "card"
-	TypeNote     Type = "note"
+import (
+	"encoding/json"
+	"time"
 )
 
-//type Record struct {
-//	ID            int             `json:"id"`
-//	UserID        int             `json:"-"`
-//	Type          Type            `json:"type"`
-//	EncryptedData string          `json:"-"`
-//	Meta          json.RawMessage `json:"meta"`
-//	Version       int             `json:"version"`
-//	LastModified  time.Time       `json:"last_modified"`
-//}
+type Record struct {
+	ID            int             `json:"id"`
+	UserID        int             `json:"user_id"`
+	Type          RecType         `json:"type"`
+	EncryptedData string          `json:"encrypted_data,omitempty"`
+	Meta          json.RawMessage `json:"meta,omitempty"`
+	Version       int             `json:"version"`
+	LastModified  time.Time       `json:"last_modified"`
+	DeletedAt     *time.Time      `json:"deleted_at,omitempty"`
+	Checksum      string          `json:"checksum,omitempty"`
+	DeviceID      string          `json:"device_id,omitempty"`
+}
+
+type RecordVersion struct {
+	ID            int             `json:"id"`
+	RecordID      int             `json:"record_id"`
+	Version       int             `json:"version"`
+	EncryptedData string          `json:"encrypted_data"`
+	Meta          json.RawMessage `json:"meta"`
+	Checksum      string          `json:"checksum"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+// RecordWithStatus добавляет статус синхронизации
+type RecordWithStatus struct {
+	Record
+	SyncStatus string `json:"sync_status"`
+	DeviceID   string `json:"device_id,omitempty"`
+}
+
+// BatchUpdate представляет пакетное обновление записей
+type BatchUpdate struct {
+	Records []Record `json:"records"`
+}
+
+// SearchCriteria критерии поиска записей
+type SearchCriteria struct {
+	Type      string
+	MetaQuery json.RawMessage
+	FromDate  *time.Time
+	ToDate    *time.Time
+	Limit     int
+	Offset    int
+}
