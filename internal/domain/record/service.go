@@ -29,7 +29,7 @@ type Service struct {
 
 type Servicer interface {
 	List(ctx context.Context, userID int) (ListResponse, error)
-	Create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (Response, error)
+	Create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (int, error)
 	Find(ctx context.Context, userID, recordID int) (*Record, error)
 	Update(ctx context.Context, userID, recordID int, typ RecType, encryptedData string, meta json.RawMessage) error
 	Delete(ctx context.Context, userID, recordID int) error
@@ -123,9 +123,9 @@ func (s *Service) List(ctx context.Context, userID int) (ListResponse, error) {
 }
 
 // Create creates a new record
-func (s *Service) Create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (Response, error) {
+func (s *Service) Create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (int, error) {
 	if typ == "" || encryptedData == "" {
-		return Response{}, ErrInvalidData
+		return -1, ErrInvalidData
 	}
 
 	checksum := s.generateChecksum(encryptedData, typ, meta)
@@ -142,19 +142,12 @@ func (s *Service) Create(ctx context.Context, userID int, typ RecType, encrypted
 	recordID, err := s.repo.Create(ctx, record)
 	if err != nil {
 		s.log.Error("failed to create record", "user_id", userID, "type", typ, "error", err)
-		return Response{
-			ID:     0,
-			Status: "Error",
-			Error:  err.Error(),
-		}, fmt.Errorf("create record: %w", err)
+		return -1, fmt.Errorf("create record: %w", err)
 	}
 
 	s.log.Info("record created successfully", "record_id", recordID, "user_id", userID, "type", typ)
 
-	return Response{
-		ID:     recordID,
-		Status: "Ok",
-	}, nil
+	return recordID, nil
 }
 
 // Find returns a specific record by ID
