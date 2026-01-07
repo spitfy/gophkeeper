@@ -18,11 +18,11 @@ type ListResponse struct {
 	Total   int          `json:"total"`
 }
 
-type listOutput struct {
+type ListOutput struct {
 	Body ListResponse
 }
 
-type createInput struct {
+type CreateInput struct {
 	Body Request
 }
 
@@ -30,15 +30,15 @@ type Output struct {
 	Body Response
 }
 
-type findOutput struct {
+type FindOutput struct {
 	Body FindResponse
 }
 
-type findInput struct {
+type FindInput struct {
 	ID int `path:"id" example:"1" doc:"ID записи"`
 }
 
-type updateInput struct {
+type UpdateInput struct {
 	ID   int `path:"id" example:"1" doc:"ID записи"`
 	Body Request
 }

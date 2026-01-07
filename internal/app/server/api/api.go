@@ -11,15 +11,14 @@
 //PUT  /api/records/{id}  # Обновить запись (auth)
 //DELETE /api/records/{id} # Удалить запись (auth)
 
-package handler
+package api
 
 import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
-	"gophkeeper/internal/domain/record"
+	"gophkeeper/internal/app/server/api/http/record"
 	"gophkeeper/internal/domain/user"
-	"gophkeeper/internal/infrastructure/middleware/auth"
 )
 
 type Handler struct {
@@ -27,12 +26,8 @@ type Handler struct {
 	Record *record.Handler
 }
 
-type Middleware struct {
-	Auth *auth.Auth
-}
-
-// NewAPI создает *chi.Mux с ВСЕМИ операциями через huma.Register
-func NewAPI(
+// New создает *chi.Mux с ВСЕМИ операциями через huma.Register
+func New(
 	handler Handler,
 ) *chi.Mux {
 	mux := chi.NewMux()

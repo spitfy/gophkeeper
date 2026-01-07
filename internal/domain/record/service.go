@@ -28,8 +28,8 @@ type Service struct {
 }
 
 type Servicer interface {
-	list(ctx context.Context, userID int) (ListResponse, error)
-	create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (Response, error)
+	List(ctx context.Context, userID int) (ListResponse, error)
+	Create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (Response, error)
 	Find(ctx context.Context, userID, recordID int) (*Record, error)
 	Update(ctx context.Context, userID, recordID int, typ RecType, encryptedData string, meta json.RawMessage) error
 	Delete(ctx context.Context, userID, recordID int) error
@@ -98,7 +98,7 @@ func NewService(repo Repository, log *slog.Logger) Servicer {
 }
 
 // List returns all records for a user
-func (s *Service) list(ctx context.Context, userID int) (ListResponse, error) {
+func (s *Service) List(ctx context.Context, userID int) (ListResponse, error) {
 	records, err := s.repo.List(ctx, userID)
 	if err != nil {
 		s.log.Error("failed to list records", "user_id", userID, "error", err)
@@ -123,7 +123,7 @@ func (s *Service) list(ctx context.Context, userID int) (ListResponse, error) {
 }
 
 // Create creates a new record
-func (s *Service) create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (Response, error) {
+func (s *Service) Create(ctx context.Context, userID int, typ RecType, encryptedData string, meta json.RawMessage) (Response, error) {
 	if typ == "" || encryptedData == "" {
 		return Response{}, ErrInvalidData
 	}

@@ -4,16 +4,17 @@ import (
 	"context"
 	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/exp/slog"
-	"gophkeeper/internal/infrastructure/middleware/auth"
+	"gophkeeper/internal/app/server/api/http/middleware/auth"
+	"gophkeeper/internal/domain/record"
 )
 
 type Handler struct {
-	service    Servicer
+	service    record.Servicer
 	log        *slog.Logger
 	middleware huma.Middlewares
 }
 
-func NewHandler(service Servicer, log *slog.Logger, mws huma.Middlewares) *Handler {
+func NewHandler(service record.Servicer, log *slog.Logger, mws huma.Middlewares) *Handler {
 	return &Handler{
 		service:    service,
 		log:        log,
@@ -23,7 +24,7 @@ func NewHandler(service Servicer, log *slog.Logger, mws huma.Middlewares) *Handl
 
 func (h *Handler) SetupRoutes(api huma.API) {
 	huma.Register(api, h.listOp(), h.list)
-	huma.Register(api, h.createOp(), h.Create)
+	huma.Register(api, h.createOp(), h.create)
 	huma.Register(api, h.findOp(), h.find)
 	huma.Register(api, h.updateOp(), h.update)
 	huma.Register(api, h.deleteOp(), h.delete)
@@ -35,7 +36,7 @@ func (h *Handler) list(ctx context.Context, _ *struct{}) (*listOutput, error) {
 		return nil, huma.Error401Unauthorized("Unauthorized")
 	}
 
-	records, err := h.service.list(ctx, userID)
+	records, err := h.service.List(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -51,42 +52,45 @@ func (h *Handler) find(ctx context.Context, input *findInput) (*findOutput, erro
 		return nil, huma.Error401Unauthorized("Unauthorized")
 	}
 
-	record, err := h.service.Find(ctx, userID, input.ID)
+	rec, err := h.service.Find(ctx, userID, input.ID)
 	if err != nil {
 		return &findOutput{
-			Body: FindResponse{
+			Body: findResponse{
 				Status: "Error",
 			},
 		}, err
 	}
 
 	return &findOutput{
-		Body: FindResponse{
+		Body: findResponse{
 			Status: "Ok",
-			Record: record,
+			Record: rec,
 		},
 	}, nil
 }
 
-func (h *Handler) Create(ctx context.Context, input *createInput) (*Output, error) {
+func (h *Handler) create(ctx context.Context, input *createInput) (*output, error) {
 	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, huma.Error401Unauthorized("Unauthorized")
 	}
 
-	response, err := h.service.create(ctx, userID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
+	rec, err := h.service.Create(ctx, userID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
 	if err != nil {
-		return &Output{
-			Body: response,
+		return &output{
+			Body: response{Status: "Error"},
 		}, err
 	}
 
-	return &Output{
-		Body: response,
+	return &output{
+		Body: response{
+			ID:     rec.ID,
+			Status: "Ok",
+		},
 	}, nil
 }
 
-func (h *Handler) update(ctx context.Context, input *updateInput) (*Output, error) {
+func (h *Handler) update(ctx context.Context, input *updateInput) (*output, error) {
 	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, huma.Error401Unauthorized("Unauthorized")
@@ -94,22 +98,22 @@ func (h *Handler) update(ctx context.Context, input *updateInput) (*Output, erro
 
 	err := h.service.Update(ctx, userID, input.ID, input.Body.Type, input.Body.EncryptedData, input.Body.Meta)
 	if err != nil {
-		return &Output{
-			Body: Response{
+		return &output{
+			Body: response{
 				ID:     input.ID,
 				Status: "Error",
 			},
 		}, err
 	}
-	return &Output{
-		Body: Response{
+	return &output{
+		Body: response{
 			ID:     input.ID,
 			Status: "Ok",
 		},
 	}, nil
 }
 
-func (h *Handler) delete(ctx context.Context, input *updateInput) (*Output, error) {
+func (h *Handler) delete(ctx context.Context, input *updateInput) (*output, error) {
 	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, huma.Error401Unauthorized("Unauthorized")
@@ -117,14 +121,14 @@ func (h *Handler) delete(ctx context.Context, input *updateInput) (*Output, erro
 
 	err := h.service.Delete(ctx, userID, input.ID)
 	if err != nil {
-		return &Output{
-			Body: Response{
+		return &output{
+			Body: response{
 				Status: "Error",
 			},
 		}, err
 	}
-	return &Output{
-		Body: Response{
+	return &output{
+		Body: response{
 			Status: "Ok",
 		},
 	}, nil
