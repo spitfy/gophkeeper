@@ -1,81 +1,145 @@
+// internal/app/client/crypto/encryption.go
 package crypto
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/base64"
-	"errors"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
-	"io"
 )
 
-// EncryptData шифрует данные с использованием мастер-ключа
-func EncryptData(plaintext []byte, masterKey []byte) (string, error) {
-	// Создаем новый cipher block
-	block, err := aes.NewCipher(masterKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to create cipher: %w", err)
-	}
-
-	// Генерируем случайный nonce для GCM
-	nonce := make([]byte, 12)
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("failed to generate nonce: %w", err)
-	}
-
-	// Создаем GCM
-	aesgcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %w", err)
-	}
-
-	// Шифруем данные
-	ciphertext := aesgcm.Seal(nil, nonce, plaintext, nil)
-
-	// Объединяем nonce и ciphertext в один массив
-	result := make([]byte, len(nonce)+len(ciphertext))
-	copy(result, nonce)
-	copy(result[len(nonce):], ciphertext)
-
-	// Кодируем в base64 для удобства хранения
-	return base64.StdEncoding.EncodeToString(result), nil
+// RecordEncryptor отвечает за шифрование данных записей
+type RecordEncryptor struct {
+	masterKeyManager *MasterKeyManager
 }
 
-// DecryptData расшифровывает данные с использованием мастер-ключа
-func DecryptData(encryptedData string, masterKey []byte) ([]byte, error) {
-	// Декодируем из base64
-	data, err := base64.StdEncoding.DecodeString(encryptedData)
+// NewRecordEncryptor создает новый шифровальщик записей
+func NewRecordEncryptor(masterKeyManager *MasterKeyManager) *RecordEncryptor {
+	return &RecordEncryptor{
+		masterKeyManager: masterKeyManager,
+	}
+}
+
+// EncryptRecord шифрует данные записи
+func (e *RecordEncryptor) EncryptRecord(plaintext []byte) ([]byte, error) {
+	if e.masterKeyManager == nil {
+		return nil, fmt.Errorf("мастер-ключ не инициализирован")
+	}
+
+	return e.masterKeyManager.EncryptData(plaintext)
+}
+
+// DecryptRecord расшифровывает данные записи
+func (e *RecordEncryptor) DecryptRecord(ciphertext []byte) ([]byte, error) {
+	if e.masterKeyManager == nil {
+		return nil, fmt.Errorf("мастер-ключ не инициализирован")
+	}
+
+	return e.masterKeyManager.DecryptData(ciphertext)
+}
+
+// EncryptField шифрует отдельное поле записи
+func (e *RecordEncryptor) EncryptField(fieldName string, value string) (string, error) {
+	if e.masterKeyManager == nil {
+		return "", fmt.Errorf("мастер-ключ не инициализирован")
+	}
+
+	encrypted, err := e.masterKeyManager.EncryptData([]byte(value))
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64: %w", err)
+		return "", err
 	}
 
-	// Проверяем минимальную длину
-	if len(data) < 13 { // 12 байт nonce + минимум 1 байт данных
-		return nil, errors.New("invalid encrypted data length")
+	return hex.EncodeToString(encrypted), nil
+}
+
+// DecryptField расшифровывает отдельное поле записи
+func (e *RecordEncryptor) DecryptField(fieldName string, encryptedHex string) (string, error) {
+	if e.masterKeyManager == nil {
+		return "", fmt.Errorf("мастер-ключ не инициализирован")
 	}
 
-	// Извлекаем nonce и ciphertext
-	nonce := data[:12]
-	ciphertext := data[12:]
-
-	// Создаем cipher block
-	block, err := aes.NewCipher(masterKey)
+	encrypted, err := hex.DecodeString(encryptedHex)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create cipher: %w", err)
+		return "", fmt.Errorf("ошибка декодирования hex: %w", err)
 	}
 
-	// Создаем GCM
-	aesgcm, err := cipher.NewGCM(block)
+	decrypted, err := e.masterKeyManager.DecryptData(encrypted)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GCM: %w", err)
+		return "", err
 	}
 
-	// Расшифровываем данные
-	plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
+	return string(decrypted), nil
+}
+
+// GenerateHMAC создает HMAC для проверки целостности данных
+func (e *RecordEncryptor) GenerateHMAC(data []byte) (string, error) {
+	if e.masterKeyManager == nil {
+		return "", fmt.Errorf("мастер-ключ не инициализирован")
+	}
+
+	// Используем мастер-ключ для создания HMAC
+	mac := hmac.New(sha256.New, e.masterKeyManager.getRawKey())
+	mac.Write(data)
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+// VerifyHMAC проверяет HMAC для данных
+func (e *RecordEncryptor) VerifyHMAC(data []byte, expectedHMAC string) (bool, error) {
+	if e.masterKeyManager == nil {
+		return false, fmt.Errorf("мастер-ключ не инициализирован")
+	}
+
+	actualHMAC, err := e.GenerateHMAC(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt: %w", err)
+		return false, err
 	}
 
-	return plaintext, nil
+	return hmac.Equal([]byte(actualHMAC), []byte(expectedHMAC)), nil
+}
+
+// EncryptMetadata шифрует метаданные записи
+func (e *RecordEncryptor) EncryptMetadata(metadata map[string]string) (map[string]string, error) {
+	if e.masterKeyManager == nil {
+		return nil, fmt.Errorf("мастер-ключ не инициализирован")
+	}
+
+	encryptedMetadata := make(map[string]string)
+	for key, value := range metadata {
+		encrypted, err := e.EncryptField(key, value)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка шифрования поля %s: %w", key, err)
+		}
+		encryptedMetadata[key] = encrypted
+	}
+
+	return encryptedMetadata, nil
+}
+
+// DecryptMetadata расшифровывает метаданные записи
+func (e *RecordEncryptor) DecryptMetadata(encryptedMetadata map[string]string) (map[string]string, error) {
+	if e.masterKeyManager == nil {
+		return nil, fmt.Errorf("мастер-ключ не инициализирован")
+	}
+
+	metadata := make(map[string]string)
+	for key, encryptedValue := range encryptedMetadata {
+		decrypted, err := e.DecryptField(key, encryptedValue)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка расшифровки поля %s: %w", key, err)
+		}
+		metadata[key] = decrypted
+	}
+
+	return metadata, nil
+}
+
+// getRawKey возвращает сырой мастер-ключ (только для внутреннего использования)
+func (m *MasterKeyManager) getRawKey() []byte {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Создаем копию ключа для безопасности
+	keyCopy := make([]byte, len(m.masterKey))
+	copy(keyCopy, m.masterKey)
+	return keyCopy
 }

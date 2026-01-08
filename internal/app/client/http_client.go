@@ -16,42 +16,105 @@ import (
 )
 
 type httpClient struct {
-	client  *http.Client
-	config  *config.Config
-	log     *slog.Logger
-	baseURL string
-	token   string
+	client    *http.Client
+	config    *config.Config
+	log       *slog.Logger
+	baseURL   string
+	token     string
+	userAgent string
 }
 
-func NewHTTPClient(cfg *config.Config, log *slog.Logger) (HTTPClient, error) {
+func NewHTTPClient(cfg *config.Config, log *slog.Logger) (*httpClient, error) {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
-			MaxIdleConns:        10,
-			IdleConnTimeout:     30 * time.Second,
+			MaxIdleConns:        100,
+			IdleConnTimeout:     90 * time.Second,
 			DisableCompression:  false,
 			DisableKeepAlives:   false,
 			MaxIdleConnsPerHost: 10,
 		},
 	}
 
-	// Добавляем протокол
-	baseURL := "http://"
+	// Определяем протокол
+	scheme := "http://"
 	if cfg.EnableTLS {
-		baseURL = "https://"
+		scheme = "https://"
 	}
-	baseURL += cfg.ServerAddress
+	baseURL := scheme + cfg.ServerAddress
 
 	return &httpClient{
-		client:  client,
-		config:  cfg,
-		log:     log,
-		baseURL: baseURL,
+		client:    client,
+		config:    cfg,
+		log:       log,
+		baseURL:   baseURL,
+		userAgent: "GophKeeper-Client/1.0",
 	}, nil
 }
 
-func (h *httpClient) setAuthToken(token string) {
+// SetToken устанавливает токен аутентификации
+func (h *httpClient) SetToken(token string) {
 	h.token = token
+}
+
+// HealthCheck проверяет доступность сервера
+func (h *httpClient) HealthCheck(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", h.baseURL+"/api/v1/health", nil)
+	if err != nil {
+		return fmt.Errorf("ошибка создания запроса: %w", err)
+	}
+
+	req.Header.Set("User-Agent", h.userAgent)
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("сервер недоступен: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("сервер вернул статус: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// CreateRecord создает запись на сервере
+func (h *httpClient) CreateRecord(ctx context.Context, req record.CreateRequest) (string, error) {
+	resp, err := h.doRequest(ctx, "POST", "/api/v1/records", req)
+	if err != nil {
+		return "", err
+	}
+
+	var createResp struct {
+		ID string `json:"id"`
+	}
+
+	if err := h.parseResponse(resp, &createResp); err != nil {
+		return "", err
+	}
+
+	return createResp.ID, nil
+}
+
+// UpdateRecord обновляет запись на сервере
+func (h *httpClient) UpdateRecord(ctx context.Context, id string, req record.UpdateRequest) error {
+	resp, err := h.doRequest(ctx, "PUT", "/api/v1/records/"+id, req)
+	if err != nil {
+		return err
+	}
+
+	return h.parseResponse(resp, nil)
+}
+
+// ChangePassword меняет пароль пользователя
+func (h *httpClient) ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error {
+	resp, err := h.doRequest(ctx, "POST", "/api/v1/auth/change-password", req)
+	if err != nil {
+		return err
+	}
+
+	return h.parseResponse(resp, nil)
 }
 
 func (h *httpClient) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {

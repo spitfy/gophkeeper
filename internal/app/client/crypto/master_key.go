@@ -1,400 +1,496 @@
+// internal/app/client/crypto/master_key.go
 package crypto
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
-	"encoding/binary"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
+	"sync"
+	"time"
 
 	"golang.org/x/crypto/argon2"
-	"golang.org/x/crypto/nacl/secretbox"
-	"golang.org/x/term"
+	"golang.org/x/crypto/pbkdf2"
 )
 
-var (
-	ErrMasterKeyNotFound = errors.New("master key not found")
-	ErrInvalidPassword   = errors.New("invalid password")
-	ErrInvalidKeyFile    = errors.New("invalid key file format")
+const (
+	// Константы для PBKDF2
+	pbkdf2Iterations = 100000
+	pbkdf2KeyLength  = 32 // 256 бит для AES-256
+	pbkdf2SaltLength = 16
+
+	// Константы для Argon2 (более безопасная альтернатива)
+	argon2Time    = 1
+	argon2Memory  = 64 * 1024 // 64 MB
+	argon2Threads = 4
+	argon2KeyLen  = 32
+
+	// Константы для шифрования
+	aesGCMNonceLength = 12
+	keyVersion        = 1
+
+	// Константы для файла мастер-ключа
+	masterKeyPermissions = 0600
 )
 
-// MasterKeyParams параметры для генерации ключа
-type MasterKeyParams struct {
-	Salt      []byte `json:"salt"`
-	Time      uint32 `json:"time"`
-	Memory    uint32 `json:"memory"`
-	Threads   uint8  `json:"threads"`
-	KeyLength uint32 `json:"key_length"`
+// MasterKeyHeader содержит метаданные мастер-ключа
+type MasterKeyHeader struct {
+	Version      int       `json:"version"`
+	KeyAlgorithm string    `json:"key_algorithm"`
+	Salt         string    `json:"salt"` // base64 encoded salt
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	KeyHash      string    `json:"key_hash"`   // SHA256 хэш ключа для проверки
+	Iterations   int       `json:"iterations"` // Для PBKDF2
 }
 
-// MasterKey зашифрованный мастер-ключ
-type MasterKey struct {
-	Params       MasterKeyParams `json:"params"`
-	EncryptedKey []byte          `json:"encrypted_key"`
-	Nonce        []byte          `json:"nonce"`
+// MasterKeyManager управляет мастер-ключом
+type MasterKeyManager struct {
+	masterKey []byte          // Загруженный мастер-ключ в памяти
+	header    MasterKeyHeader // Заголовок с метаданными
+	keyPath   string          // Путь к файлу мастер-ключа
+	isLoaded  bool            // Загружен ли ключ в память
+	isLocked  bool            // Заблокирован ли ключ (очищен из памяти)
+	mu        sync.RWMutex
 }
 
-// DefaultMasterKeyParams возвращает рекомендуемые параметры Argon2id
-func DefaultMasterKeyParams() MasterKeyParams {
-	return MasterKeyParams{
-		Time:      3,                       // 3 итерации
-		Memory:    64 * 1024,               // 64 МБ памяти
-		Threads:   uint8(runtime.NumCPU()), // Количество потоков = количеству CPU
-		KeyLength: 32,                      // 32 байта для AES-256
+// NewMasterKeyManager создает новый менеджер мастер-ключа
+func NewMasterKeyManager(keyPath string) (*MasterKeyManager, error) {
+	// Нормализуем путь
+	absPath, err := filepath.Abs(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка определения пути: %w", err)
 	}
-}
 
-// GenerateSalt генерирует криптографически безопасную соль
-func GenerateSalt() ([]byte, error) {
-	salt := make([]byte, 16)
-	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-		return nil, fmt.Errorf("failed to generate salt: %w", err)
+	manager := &MasterKeyManager{
+		keyPath:  absPath,
+		isLoaded: false,
+		isLocked: true,
 	}
-	return salt, nil
+
+	// Если файл существует, загружаем заголовок
+	if _, err := os.Stat(absPath); err == nil {
+		if err := manager.loadHeader(); err != nil {
+			return nil, fmt.Errorf("ошибка загрузки заголовка ключа: %w", err)
+		}
+	}
+
+	return manager, nil
 }
 
-// DeriveKeyFromPassword создает ключ из пароля и соли с использованием Argon2id
-func DeriveKeyFromPassword(password []byte, params MasterKeyParams) ([]byte, error) {
-	// Используем Argon2id - рекомендованный алгоритм для хеширования паролей
-	key := argon2.IDKey(
-		password,
-		params.Salt,
-		params.Time,
-		params.Memory,
-		params.Threads,
-		params.KeyLength,
-	)
+// GenerateMasterKey генерирует новый мастер-ключ
+func (m *MasterKeyManager) GenerateMasterKey(password string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	// Затираем пароль из памяти после использования
-	clearMemory(password)
-
-	return key, nil
-}
-
-// CreateMasterKey создает новый мастер-ключ из пароля
-func CreateMasterKey(password []byte) (*MasterKey, error) {
 	// Генерируем соль
-	salt, err := GenerateSalt()
+	salt := make([]byte, pbkdf2SaltLength)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return fmt.Errorf("ошибка генерации соли: %w", err)
+	}
+
+	// Генерируем ключ из пароля с помощью PBKDF2
+	key := pbkdf2.Key([]byte(password), salt, pbkdf2Iterations, pbkdf2KeyLength, sha256.New)
+
+	// Вычисляем хэш ключа для будущей проверки
+	keyHash := sha256.Sum256(key)
+
+	// Создаем заголовок
+	m.header = MasterKeyHeader{
+		Version:      keyVersion,
+		KeyAlgorithm: "PBKDF2-SHA256",
+		Salt:         hex.EncodeToString(salt),
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+		KeyHash:      hex.EncodeToString(keyHash[:]),
+		Iterations:   pbkdf2Iterations,
+	}
+
+	// Сохраняем ключ в память
+	m.masterKey = key
+	m.isLoaded = true
+	m.isLocked = false
+
+	// Сохраняем ключ в файл (зашифрованный)
+	if err := m.saveMasterKey(); err != nil {
+		// Очищаем ключ из памяти в случае ошибки
+		m.clearKey()
+		return fmt.Errorf("ошибка сохранения мастер-ключа: %w", err)
+	}
+
+	return nil
+}
+
+// UnlockMasterKey загружает мастер-ключ из файла с использованием пароля
+func (m *MasterKeyManager) UnlockMasterKey(password string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Если ключ уже загружен, ничего не делаем
+	if m.isLoaded && !m.isLocked {
+		return nil
+	}
+
+	// Загружаем файл мастер-ключа
+	encryptedData, err := os.ReadFile(m.keyPath)
+	if err != nil {
+		return fmt.Errorf("ошибка чтения файла ключа: %w", err)
+	}
+
+	// Декодируем заголовок и зашифрованные данные
+	var container struct {
+		Header MasterKeyHeader `json:"header"`
+		Data   string          `json:"data"` // base64 encoded encrypted key
+	}
+
+	if err := json.Unmarshal(encryptedData, &container); err != nil {
+		return fmt.Errorf("ошибка декодирования файла ключа: %w", err)
+	}
+
+	m.header = container.Header
+
+	// Декодируем соль
+	salt, err := hex.DecodeString(m.header.Salt)
+	if err != nil {
+		return fmt.Errorf("ошибка декодирования соли: %w", err)
+	}
+
+	// Восстанавливаем ключ из пароля
+	var key []byte
+	switch m.header.KeyAlgorithm {
+	case "PBKDF2-SHA256":
+		key = pbkdf2.Key([]byte(password), salt, m.header.Iterations, pbkdf2KeyLength, sha256.New)
+	case "Argon2id":
+		// Для будущей поддержки Argon2
+		salt = salt[:16] // Argon2 требует 16 байт соли
+		key = argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
+	default:
+		return fmt.Errorf("неподдерживаемый алгоритм: %s", m.header.KeyAlgorithm)
+	}
+
+	// Проверяем хэш ключа
+	keyHash := sha256.Sum256(key)
+	if hex.EncodeToString(keyHash[:]) != m.header.KeyHash {
+		return fmt.Errorf("неверный пароль")
+	}
+
+	// Декодируем и расшифровываем мастер-ключ
+	encryptedKey, err := hex.DecodeString(container.Data)
+	if err != nil {
+		return fmt.Errorf("ошибка декодирования зашифрованного ключа: %w", err)
+	}
+
+	// Для первого раза ключ еще не зашифрован (генерируется из пароля)
+	if len(encryptedKey) == 0 {
+		m.masterKey = key
+	} else {
+		// Расшифровываем мастер-ключ
+		decryptedKey, err := decryptWithKey(key, encryptedKey)
+		if err != nil {
+			return fmt.Errorf("ошибка расшифровки мастер-ключа: %w", err)
+		}
+		m.masterKey = decryptedKey
+	}
+
+	m.isLoaded = true
+	m.isLocked = false
+	return nil
+}
+
+// saveMasterKey сохраняет мастер-ключ в файл
+func (m *MasterKeyManager) saveMasterKey() error {
+	// Для первого сохранения используем ключ, полученный из пароля
+	// (он же и будет мастер-ключом)
+	var encryptedData string
+
+	// Если у нас уже есть мастер-ключ в памяти, шифруем его самим собой
+	if len(m.masterKey) > 0 {
+		// Шифруем мастер-ключ самим собой
+		encryptedKey, err := encryptWithKey(m.masterKey, m.masterKey)
+		if err != nil {
+			return fmt.Errorf("ошибка шифрования мастер-ключа: %w", err)
+		}
+		encryptedData = hex.EncodeToString(encryptedKey)
+	}
+
+	container := struct {
+		Header MasterKeyHeader `json:"header"`
+		Data   string          `json:"data"`
+	}{
+		Header: m.header,
+		Data:   encryptedData,
+	}
+
+	// Сериализуем в JSON
+	data, err := json.MarshalIndent(container, "", "  ")
+	if err != nil {
+		return fmt.Errorf("ошибка сериализации: %w", err)
+	}
+
+	// Сохраняем в файл
+	if err := os.WriteFile(m.keyPath, data, masterKeyPermissions); err != nil {
+		return fmt.Errorf("ошибка записи файла: %w", err)
+	}
+
+	return nil
+}
+
+// loadHeader загружает только заголовок мастер-ключа
+func (m *MasterKeyManager) loadHeader() error {
+	data, err := os.ReadFile(m.keyPath)
+	if err != nil {
+		return fmt.Errorf("ошибка чтения файла ключа: %w", err)
+	}
+
+	var container struct {
+		Header MasterKeyHeader `json:"header"`
+	}
+
+	if err := json.Unmarshal(data, &container); err != nil {
+		return fmt.Errorf("ошибка декодирования файла ключа: %w", err)
+	}
+
+	m.header = container.Header
+	return nil
+}
+
+// EncryptData шифрует данные с использованием мастер-ключа
+func (m *MasterKeyManager) EncryptData(plaintext []byte) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if !m.isLoaded || m.isLocked {
+		return nil, fmt.Errorf("мастер-ключ не загружен или заблокирован")
+	}
+
+	return encryptWithKey(m.masterKey, plaintext)
+}
+
+// DecryptData расшифровывает данные с использованием мастер-ключа
+func (m *MasterKeyManager) DecryptData(ciphertext []byte) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if !m.isLoaded || m.isLocked {
+		return nil, fmt.Errorf("мастер-ключ не загружен или заблокирован")
+	}
+
+	return decryptWithKey(m.masterKey, ciphertext)
+}
+
+// EncryptDataWithPassword шифрует данные с использованием пароля напрямую
+func (m *MasterKeyManager) EncryptDataWithPassword(plaintext []byte, password string) ([]byte, error) {
+	// Генерируем ключ из пароля для этого шифрования
+	salt := make([]byte, pbkdf2SaltLength)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return nil, fmt.Errorf("ошибка генерации соли: %w", err)
+	}
+
+	key := pbkdf2.Key([]byte(password), salt, pbkdf2Iterations, pbkdf2KeyLength, sha256.New)
+
+	// Шифруем данные
+	ciphertext, err := encryptWithKey(key, plaintext)
 	if err != nil {
 		return nil, err
 	}
 
-	// Создаем параметры
-	params := DefaultMasterKeyParams()
-	params.Salt = salt
+	// Добавляем соль в начало шифротекста для возможности расшифровки
+	result := make([]byte, len(salt)+len(ciphertext))
+	copy(result[:len(salt)], salt)
+	copy(result[len(salt):], ciphertext)
+
+	return result, nil
+}
+
+// DecryptDataWithPassword расшифровывает данные с использованием пароля
+func (m *MasterKeyManager) DecryptDataWithPassword(ciphertext []byte, password string) ([]byte, error) {
+	// Извлекаем соль из шифротекста
+	if len(ciphertext) < pbkdf2SaltLength {
+		return nil, fmt.Errorf("неверный формат шифротекста")
+	}
+
+	salt := ciphertext[:pbkdf2SaltLength]
+	encryptedData := ciphertext[pbkdf2SaltLength:]
 
 	// Генерируем ключ из пароля
-	derivedKey, err := DeriveKeyFromPassword(password, params)
-	if err != nil {
-		return nil, err
-	}
-	defer clearMemory(derivedKey)
+	key := pbkdf2.Key([]byte(password), salt, pbkdf2Iterations, pbkdf2KeyLength, sha256.New)
 
-	// Генерируем случайный мастер-ключ
-	masterKey := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, masterKey); err != nil {
-		return nil, fmt.Errorf("failed to generate master key: %w", err)
-	}
-
-	// Шифруем мастер-ключ с использованием derivedKey
-	nonce := make([]byte, 24)
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("failed to generate nonce: %w", err)
-	}
-
-	// Используем secretbox для шифрования
-	var nonceArr [24]byte
-	var keyArr [32]byte
-	copy(nonceArr[:], nonce)
-	copy(keyArr[:], derivedKey)
-
-	encryptedKey := secretbox.Seal(nil, masterKey, &nonceArr, &keyArr)
-
-	return &MasterKey{
-		Params:       params,
-		EncryptedKey: encryptedKey,
-		Nonce:        nonce,
-	}, nil
+	// Расшифровываем данные
+	return decryptWithKey(key, encryptedData)
 }
 
-// DecryptMasterKey расшифровывает мастер-ключ с использованием пароля
-func DecryptMasterKey(masterKey *MasterKey, password []byte) ([]byte, error) {
-	// Восстанавливаем derivedKey из пароля
-	derivedKey, err := DeriveKeyFromPassword(password, masterKey.Params)
-	if err != nil {
-		return nil, err
-	}
-	defer clearMemory(derivedKey)
+// GetKeyHash возвращает хэш текущего мастер-ключа
+func (m *MasterKeyManager) GetKeyHash() (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	// Подготавливаем данные для secretbox
-	var nonceArr [24]byte
-	var keyArr [32]byte
-
-	if len(masterKey.Nonce) != 24 {
-		return nil, ErrInvalidKeyFile
-	}
-	if len(derivedKey) != 32 {
-		return nil, ErrInvalidKeyFile
+	if !m.isLoaded || m.isLocked {
+		return "", fmt.Errorf("мастер-ключ не загружен или заблокирован")
 	}
 
-	copy(nonceArr[:], masterKey.Nonce)
-	copy(keyArr[:], derivedKey)
-
-	// Расшифровываем мастер-ключ
-	decrypted, ok := secretbox.Open(nil, masterKey.EncryptedKey, &nonceArr, &keyArr)
-	if !ok {
-		return nil, ErrInvalidPassword
-	}
-
-	return decrypted, nil
+	keyHash := sha256.Sum256(m.masterKey)
+	return hex.EncodeToString(keyHash[:]), nil
 }
 
-// SaveMasterKey сохраняет зашифрованный мастер-ключ в файл
-func SaveMasterKey(masterKey *MasterKey, path string) error {
-	// Кодируем в формат: версия(2) + params + nonce(24) + encrypted_key
-	var data []byte
-
-	// Версия 1
-	data = append(data, 0x01, 0x00)
-
-	// Salt (16 байт)
-	data = append(data, masterKey.Params.Salt...)
-
-	// Time (4 байта, little-endian)
-	timeBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(timeBytes, masterKey.Params.Time)
-	data = append(data, timeBytes...)
-
-	// Memory (4 байта, little-endian)
-	memoryBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(memoryBytes, masterKey.Params.Memory)
-	data = append(data, memoryBytes...)
-
-	// Threads (1 байт)
-	data = append(data, masterKey.Params.Threads)
-
-	// KeyLength (4 байта, little-endian)
-	keyLengthBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(keyLengthBytes, masterKey.Params.KeyLength)
-	data = append(data, keyLengthBytes...)
-
-	// Nonce (24 байта)
-	data = append(data, masterKey.Nonce...)
-
-	// Encrypted key
-	data = append(data, masterKey.EncryptedKey...)
-
-	// Сохраняем в файл с правами 0400 (только чтение владельцем)
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	return os.WriteFile(path, data, 0400)
-}
-
-// LoadMasterKey загружает зашифрованный мастер-ключ из файла
-func LoadMasterKey(path string) (*MasterKey, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, ErrMasterKeyNotFound
-		}
-		return nil, fmt.Errorf("failed to read master key file: %w", err)
-	}
-
-	if len(data) < 2 {
-		return nil, ErrInvalidKeyFile
-	}
-
-	// Проверяем версию
-	if data[0] != 0x01 || data[1] != 0x00 {
-		return nil, ErrInvalidKeyFile
-	}
-
-	data = data[2:]
-
-	// Минимальный размер: salt(16) + time(4) + memory(4) + threads(1) + keylength(4) + nonce(24) = 53 байта
-	if len(data) < 53 {
-		return nil, ErrInvalidKeyFile
-	}
-
-	masterKey := &MasterKey{}
-
-	// Salt
-	masterKey.Params.Salt = data[:16]
-	data = data[16:]
-
-	// Time
-	masterKey.Params.Time = binary.LittleEndian.Uint32(data[:4])
-	data = data[4:]
-
-	// Memory
-	masterKey.Params.Memory = binary.LittleEndian.Uint32(data[:4])
-	data = data[4:]
-
-	// Threads
-	masterKey.Params.Threads = data[0]
-	data = data[1:]
-
-	// KeyLength
-	masterKey.Params.KeyLength = binary.LittleEndian.Uint32(data[:4])
-	data = data[4:]
-
-	// Nonce
-	masterKey.Nonce = data[:24]
-	data = data[24:]
-
-	// Encrypted key (оставшиеся данные)
-	masterKey.EncryptedKey = data
-
-	return masterKey, nil
-}
-
-// GetPassword интерактивно запрашивает пароль у пользователя
-func GetPassword(prompt string) ([]byte, error) {
-	fmt.Print(prompt)
-	password, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println() // Переход на новую строку после ввода пароля
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to read password: %w", err)
-	}
-
-	if len(password) == 0 {
-		return nil, errors.New("password cannot be empty")
-	}
-
-	return password, nil
-}
-
-// VerifyPassword проверяет пароль и возвращает мастер-ключ
-func VerifyPassword(keyPath string) ([]byte, error) {
-	// Загружаем зашифрованный мастер-ключ
-	masterKey, err := LoadMasterKey(keyPath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Запрашиваем пароль
-	password, err := GetPassword("Enter master password: ")
-	if err != nil {
-		return nil, err
-	}
-	defer clearMemory(password)
-
-	// Расшифровываем мастер-ключ
-	decryptedKey, err := DecryptMasterKey(masterKey, password)
-	if err != nil {
-		return nil, err
-	}
-
-	return decryptedKey, nil
-}
-
-// ChangePassword меняет мастер-пароль
-func ChangePassword(keyPath string) error {
-	fmt.Println("Changing master password...")
+// ChangeMasterPassword изменяет мастер-пароль
+func (m *MasterKeyManager) ChangeMasterPassword(oldPassword, newPassword string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	// Проверяем старый пароль
-	fmt.Println("Verify current password:")
-	oldPassword, err := GetPassword("Current password: ")
+	if err := m.verifyPassword(oldPassword); err != nil {
+		return fmt.Errorf("неверный старый пароль: %w", err)
+	}
+
+	// Генерируем новую соль
+	newSalt := make([]byte, pbkdf2SaltLength)
+	if _, err := io.ReadFull(rand.Reader, newSalt); err != nil {
+		return fmt.Errorf("ошибка генерации новой соли: %w", err)
+	}
+
+	// Генерируем новый ключ из пароля
+	newKey := pbkdf2.Key([]byte(newPassword), newSalt, pbkdf2Iterations, pbkdf2KeyLength, sha256.New)
+	newKeyHash := sha256.Sum256(newKey)
+
+	// Обновляем заголовок
+	m.header.Salt = hex.EncodeToString(newSalt)
+	m.header.KeyHash = hex.EncodeToString(newKeyHash[:])
+	m.header.UpdatedAt = time.Now()
+
+	// Шифруем текущий мастер-ключ новым ключом
+	encryptedMasterKey, err := encryptWithKey(newKey, m.masterKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("ошибка шифрования нового мастер-ключа: %w", err)
 	}
-	defer clearMemory(oldPassword)
 
-	// Загружаем и расшифровываем старый ключ
-	masterKey, err := LoadMasterKey(keyPath)
+	// Сохраняем изменения
+	container := struct {
+		Header MasterKeyHeader `json:"header"`
+		Data   string          `json:"data"`
+	}{
+		Header: m.header,
+		Data:   hex.EncodeToString(encryptedMasterKey),
+	}
+
+	data, err := json.MarshalIndent(container, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("ошибка сериализации: %w", err)
 	}
 
-	decryptedKey, err := DecryptMasterKey(masterKey, oldPassword)
+	if err := os.WriteFile(m.keyPath, data, masterKeyPermissions); err != nil {
+		return fmt.Errorf("ошибка записи файла: %w", err)
+	}
+
+	return nil
+}
+
+// Lock блокирует мастер-ключ (очищает из памяти)
+func (m *MasterKeyManager) Lock() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.clearKey()
+	m.isLocked = true
+}
+
+// IsLocked проверяет, заблокирован ли ключ
+func (m *MasterKeyManager) IsLocked() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.isLocked
+}
+
+// IsInitialized проверяет, инициализирован ли мастер-ключ
+func (m *MasterKeyManager) IsInitialized() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.header.CreatedAt != (time.Time{})
+}
+
+// verifyPassword проверяет пароль без разблокировки ключа
+func (m *MasterKeyManager) verifyPassword(password string) error {
+	salt, err := hex.DecodeString(m.header.Salt)
 	if err != nil {
-		return ErrInvalidPassword
+		return fmt.Errorf("ошибка декодирования соли: %w", err)
 	}
-	defer clearMemory(decryptedKey)
 
-	// Запрашиваем новый пароль
-	fmt.Println("\nEnter new password:")
-	newPassword, err := GetPassword("New password: ")
+	var key []byte
+	switch m.header.KeyAlgorithm {
+	case "PBKDF2-SHA256":
+		key = pbkdf2.Key([]byte(password), salt, m.header.Iterations, pbkdf2KeyLength, sha256.New)
+	default:
+		return fmt.Errorf("неподдерживаемый алгоритм: %s", m.header.KeyAlgorithm)
+	}
+
+	keyHash := sha256.Sum256(key)
+	if hex.EncodeToString(keyHash[:]) != m.header.KeyHash {
+		return fmt.Errorf("неверный пароль")
+	}
+
+	return nil
+}
+
+// clearKey безопасно очищает ключ из памяти
+func (m *MasterKeyManager) clearKey() {
+	if m.masterKey != nil {
+		// Затираем память нулями перед освобождением
+		for i := range m.masterKey {
+			m.masterKey[i] = 0
+		}
+		m.masterKey = nil
+	}
+	m.isLoaded = false
+}
+
+// encryptWithKey шифрует данные с использованием AES-GCM
+func encryptWithKey(key, plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("ошибка создания cipher: %w", err)
 	}
-	defer clearMemory(newPassword)
 
-	newPassword2, err := GetPassword("Confirm new password: ")
+	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return err
-	}
-	defer clearMemory(newPassword2)
-
-	// Проверяем совпадение паролей
-	if string(newPassword) != string(newPassword2) {
-		return errors.New("passwords do not match")
+		return nil, fmt.Errorf("ошибка создания GCM: %w", err)
 	}
 
-	// Создаем новый мастер-ключ с тем же ключом, но новым паролем
-	salt, err := GenerateSalt()
-	if err != nil {
-		return err
-	}
-
-	params := DefaultMasterKeyParams()
-	params.Salt = salt
-
-	derivedKey, err := DeriveKeyFromPassword(newPassword, params)
-	if err != nil {
-		return err
-	}
-	defer clearMemory(derivedKey)
-
-	nonce := make([]byte, 24)
+	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return fmt.Errorf("failed to generate nonce: %w", err)
+		return nil, fmt.Errorf("ошибка генерации nonce: %w", err)
 	}
 
-	var nonceArr [24]byte
-	var keyArr [32]byte
-	copy(nonceArr[:], nonce)
-	copy(keyArr[:], derivedKey)
-
-	encryptedKey := secretbox.Seal(nil, decryptedKey, &nonceArr, &keyArr)
-
-	newMasterKey := &MasterKey{
-		Params:       params,
-		EncryptedKey: encryptedKey,
-		Nonce:        nonce,
-	}
-
-	// Сохраняем новый ключ
-	return SaveMasterKey(newMasterKey, keyPath)
+	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+	return ciphertext, nil
 }
 
-// clearMemory затирает чувствительные данные из памяти
-func clearMemory(data []byte) {
-	for i := range data {
-		data[i] = 0
+// decryptWithKey расшифровывает данные с использованием AES-GCM
+func decryptWithKey(key, ciphertext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка создания cipher: %w", err)
 	}
-}
 
-// FormatTimeEstimation возвращает оценку времени для параметров Argon2
-func FormatTimeEstimation(params MasterKeyParams) string {
-	// Ориентировочная оценка (зависит от оборудования)
-	baseTime := float64(params.Time) * float64(params.Memory) / (1024 * 1024) // МБ
-	cpuFactor := float64(params.Threads)
-
-	estimatedSeconds := baseTime / cpuFactor * 0.1
-
-	if estimatedSeconds < 1 {
-		return "мгновенно"
-	} else if estimatedSeconds < 60 {
-		return fmt.Sprintf("~%.0f секунд", estimatedSeconds)
-	} else {
-		return fmt.Sprintf("~%.1f минут", estimatedSeconds/60)
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка создания GCM: %w", err)
 	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, fmt.Errorf("шифротекст слишком короткий")
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка расшифровки: %w", err)
+	}
+
+	return plaintext, nil
 }
