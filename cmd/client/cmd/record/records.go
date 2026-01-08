@@ -1,16 +1,12 @@
-package cmd
+package record
 
 import (
 	"github.com/spf13/cobra"
 )
 
-var recordsCmd = &cobra.Command{
-	Use:   "records",
-	Short: "Manage records",
-	Long: `Commands for managing password records.
-Requires authentication via 'gophkeeper login' first.`,
-}
-
-func init() {
-	rootCmd.AddCommand(recordsCmd)
+// RecordCmd - родительская команда для всех операций с записями
+var RecordCmd = &cobra.Command{
+	Use:   "record",
+	Short: "Управление записями",
+	Long:  `Создание, просмотр, обновление и удаление защищенных записей.`,
 }

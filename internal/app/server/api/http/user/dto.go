@@ -1,16 +1,13 @@
 package user
 
+import "gophkeeper/internal/domain/user"
+
 type registerInput struct {
-	Body BaseRequest
+	Body user.BaseRequest
 }
 
 type registerOutput struct {
 	Body RegisterResponse
-}
-
-type BaseRequest struct {
-	Login    string `json:"login" validate:"required,min=3,max=20"`
-	Password string `json:"password" validate:"required,min=4,max=20"`
 }
 
 type RegisterResponse struct {
@@ -20,7 +17,7 @@ type RegisterResponse struct {
 }
 
 type loginInput struct {
-	Body BaseRequest
+	Body user.BaseRequest
 }
 
 type loginOutput struct {
