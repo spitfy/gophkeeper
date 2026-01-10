@@ -30,7 +30,7 @@ var (
 	filePath    string
 )
 
-var createCmd = &cobra.Command{
+var CreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Создать новую запись",
 	Long: `Создание новой защищенной записи.
@@ -263,24 +263,24 @@ func generatePassword(length int) string {
 }
 
 func init() {
-	createCmd.Flags().StringVarP(&recordType, "type", "t", "", "тип записи (password, note, card, file)")
-	createCmd.Flags().StringVarP(&recordName, "name", "n", "", "название записи")
-	createCmd.Flags().StringVar(&description, "desc", "", "описание записи")
+	CreateCmd.Flags().StringVarP(&recordType, "type", "t", "", "тип записи (password, note, card, file)")
+	CreateCmd.Flags().StringVarP(&recordName, "name", "n", "", "название записи")
+	CreateCmd.Flags().StringVar(&description, "desc", "", "описание записи")
 
 	// Флаги для паролей
-	createCmd.Flags().StringVar(&username, "username", "", "логин/email")
-	createCmd.Flags().StringVar(&password, "password", "", "пароль")
-	createCmd.Flags().StringVar(&url, "url", "", "URL сайта")
+	CreateCmd.Flags().StringVar(&username, "username", "", "логин/email")
+	CreateCmd.Flags().StringVar(&password, "password", "", "пароль")
+	CreateCmd.Flags().StringVar(&url, "url", "", "URL сайта")
 
 	// Флаги для заметок
-	createCmd.Flags().StringVar(&noteContent, "content", "", "содержимое заметки")
+	CreateCmd.Flags().StringVar(&noteContent, "content", "", "содержимое заметки")
 
 	// Флаги для карт
-	createCmd.Flags().StringVar(&cardNumber, "card-number", "", "номер карты")
-	createCmd.Flags().StringVar(&cardHolder, "card-holder", "", "держатель карты")
-	createCmd.Flags().StringVar(&expiryDate, "expiry", "", "срок действия (MM/YY)")
-	createCmd.Flags().StringVar(&cvv, "cvv", "", "CVV код")
+	CreateCmd.Flags().StringVar(&cardNumber, "card-number", "", "номер карты")
+	CreateCmd.Flags().StringVar(&cardHolder, "card-holder", "", "держатель карты")
+	CreateCmd.Flags().StringVar(&expiryDate, "expiry", "", "срок действия (MM/YY)")
+	CreateCmd.Flags().StringVar(&cvv, "cvv", "", "CVV код")
 
 	// Флаги для файлов
-	createCmd.Flags().StringVar(&filePath, "file", "", "путь к файлу")
+	CreateCmd.Flags().StringVar(&filePath, "file", "", "путь к файлу")
 }

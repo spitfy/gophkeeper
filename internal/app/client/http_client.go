@@ -275,3 +275,46 @@ func (h *httpClient) SyncRecords(ctx context.Context, records []*record.Record) 
 
 	return h.parseResponse(resp, nil)
 }
+
+// GetSyncChanges получает изменения с сервера
+func (h *httpClient) GetSyncChanges(ctx context.Context, req record.SyncRequest) ([]*Record, error) {
+	resp, err := h.doRequest(ctx, "POST", "/api/v1/sync/changes", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var syncResp struct {
+		Records []*Record `json:"records"`
+		HasMore bool      `json:"has_more"`
+	}
+
+	if err := h.parseResponse(resp, &syncResp); err != nil {
+		return nil, err
+	}
+
+	return syncResp.Records, nil
+}
+
+// GetSyncStatus получает статус синхронизации
+func (h *httpClient) GetSyncStatus(ctx context.Context) (*SyncStatus, error) {
+	resp, err := h.doRequest(ctx, "GET", "/api/v1/sync/status", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var status SyncStatus
+	if err := h.parseResponse(resp, &status); err != nil {
+		return nil, err
+	}
+
+	return &status, nil
+}
+
+// SyncStatus статус синхронизации на сервере
+type SyncStatus struct {
+	LastSyncTime time.Time `json:"last_sync_time"`
+	TotalRecords int       `json:"total_records"`
+	DeviceCount  int       `json:"device_count"`
+	StorageUsed  int64     `json:"storage_used"`
+	StorageLimit int64     `json:"storage_limit"`
+}

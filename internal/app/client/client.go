@@ -302,20 +302,6 @@ func (a *App) GetToken() (string, error) {
 	return string(tokenBytes), nil
 }
 
-func (a *App) SaveToken(token string) error {
-	if err := os.WriteFile(a.config.TokenPath, []byte(token), 0600); err != nil {
-		return fmt.Errorf("ошибка сохранения токена: %w", err)
-	}
-	return nil
-}
-
-func (a *App) ClearToken() error {
-	if err := os.Remove(a.config.TokenPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("ошибка удаления токена: %w", err)
-	}
-	return nil
-}
-
 // Register регистрирует нового пользователя
 func (a *App) Register(ctx context.Context, req user.BaseRequest) error {
 	if err := a.httpClient.Register(ctx, req); err != nil {
@@ -327,7 +313,7 @@ func (a *App) Register(ctx context.Context, req user.BaseRequest) error {
 }
 
 // Login выполняет вход пользователя
-func (a *App) Login(ctx context.Context, req user.LoginRequest) (string, error) {
+func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 	token, err := a.httpClient.Login(ctx, req)
 	if err != nil {
 		return "", err

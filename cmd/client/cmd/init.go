@@ -8,6 +8,7 @@ import (
 
 	"gophkeeper/cmd/client/cmd/auth"
 	"gophkeeper/cmd/client/cmd/record"
+	"gophkeeper/cmd/client/cmd/sync"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -101,6 +102,8 @@ func init() {
 	record.RecordCmd.AddCommand(record.CreateCmd)
 	record.RecordCmd.AddCommand(record.GetCmd)
 	record.RecordCmd.AddCommand(record.ListCmd)
+
+	rootCmd.AddCommand(sync.SyncCmd)
 
 	// Добавляем контекст с приложением ко всем командам
 	cobra.OnInitialize(func() {
