@@ -33,6 +33,7 @@ import (
 type Handlers struct {
 	User   *userAPI.Handler
 	Record *recordAPI.Handler
+	Sync   *syncAPI.Handler
 }
 
 // New создает *chi.Mux с ВСЕМИ операциями через huma.Register

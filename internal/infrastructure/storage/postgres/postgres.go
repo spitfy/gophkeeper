@@ -9,7 +9,7 @@ import (
 )
 
 type Storage struct {
-	db *pgxpool.Pool
+	db *pgxpool.Pool //todo rename pool
 }
 
 func New(cfg *config.Config) (*Storage, error) {

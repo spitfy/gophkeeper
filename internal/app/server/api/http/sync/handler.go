@@ -36,7 +36,7 @@ func (h *Handler) getChanges(ctx context.Context, input *getChangesInput) (*getC
 	response, err := h.service.GetChanges(ctx, input.Body)
 	if err != nil {
 		return &getChangesOutput{
-			Body: GetChangesResponse{
+			Body: sync.GetChangesResponse{
 				Status: "Error",
 				Error:  err.Error(),
 			},
@@ -52,7 +52,7 @@ func (h *Handler) batchSync(ctx context.Context, input *batchSyncInput) (*batchS
 	response, err := h.service.ProcessBatch(ctx, input.Body)
 	if err != nil {
 		return &batchSyncOutput{
-			Body: BatchSyncResponse{
+			Body: sync.BatchSyncResponse{
 				Status: "Error",
 				Error:  err.Error(),
 			},
@@ -64,11 +64,11 @@ func (h *Handler) batchSync(ctx context.Context, input *batchSyncInput) (*batchS
 	}, nil
 }
 
-func (h *Handler) getStatus(ctx context.Context, input *getStatusInput) (*getStatusOutput, error) {
+func (h *Handler) getStatus(ctx context.Context, _ *getStatusInput) (*getStatusOutput, error) {
 	response, err := h.service.GetStatus(ctx)
 	if err != nil {
 		return &getStatusOutput{
-			Body: GetStatusResponse{
+			Body: sync.GetStatusResponse{
 				Status: "Error",
 				Error:  err.Error(),
 			},
@@ -80,11 +80,11 @@ func (h *Handler) getStatus(ctx context.Context, input *getStatusInput) (*getSta
 	}, nil
 }
 
-func (h *Handler) getConflicts(ctx context.Context, input *getConflictsInput) (*getConflictsOutput, error) {
+func (h *Handler) getConflicts(ctx context.Context, _ *getConflictsInput) (*getConflictsOutput, error) {
 	response, err := h.service.GetConflicts(ctx)
 	if err != nil {
 		return &getConflictsOutput{
-			Body: GetConflictsResponse{
+			Body: sync.GetConflictsResponse{
 				Status: "Error",
 				Error:  err.Error(),
 			},
@@ -92,7 +92,7 @@ func (h *Handler) getConflicts(ctx context.Context, input *getConflictsInput) (*
 	}
 
 	return &getConflictsOutput{
-		Body: GetConflictsResponse{
+		Body: sync.GetConflictsResponse{
 			Status: "Ok",
 			Data:   response,
 		},
@@ -103,7 +103,7 @@ func (h *Handler) resolveConflict(ctx context.Context, input *resolveConflictInp
 	response, err := h.service.ResolveConflict(ctx, input.ID, input.Body)
 	if err != nil {
 		return &resolveConflictOutput{
-			Body: ResolveConflictResponse{
+			Body: sync.ResolveConflictResponse{
 				Status: "Error",
 				Error:  err.Error(),
 			},
@@ -115,11 +115,11 @@ func (h *Handler) resolveConflict(ctx context.Context, input *resolveConflictInp
 	}, nil
 }
 
-func (h *Handler) getDevices(ctx context.Context, input *getDevicesInput) (*getDevicesOutput, error) {
+func (h *Handler) getDevices(ctx context.Context, _ *getDevicesInput) (*getDevicesOutput, error) {
 	response, err := h.service.GetDevices(ctx)
 	if err != nil {
 		return &getDevicesOutput{
-			Body: GetDevicesResponse{
+			Body: sync.GetDevicesResponse{
 				Status: "Error",
 				Error:  err.Error(),
 			},
@@ -127,7 +127,7 @@ func (h *Handler) getDevices(ctx context.Context, input *getDevicesInput) (*getD
 	}
 
 	return &getDevicesOutput{
-		Body: GetDevicesResponse{
+		Body: sync.GetDevicesResponse{
 			Status: "Ok",
 			Data:   response,
 		},
@@ -138,7 +138,7 @@ func (h *Handler) removeDevice(ctx context.Context, input *removeDeviceInput) (*
 	response, err := h.service.RemoveDevice(ctx, input.ID)
 	if err != nil {
 		return &removeDeviceOutput{
-			Body: RemoveDeviceResponse{
+			Body: sync.RemoveDeviceResponse{
 				Status: "Error",
 				Error:  err.Error(),
 			},

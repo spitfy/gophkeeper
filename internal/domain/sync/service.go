@@ -3,8 +3,83 @@ package sync
 import (
 	"context"
 	"fmt"
+	"gophkeeper/internal/app/server/api/http/middleware/auth"
 	"time"
+
+	"golang.org/x/exp/slog"
 )
+
+// Структуры запросов/ответов для сервиса
+type GetChangesRequest struct {
+	LastSyncTime time.Time `json:"last_sync_time"`
+	Limit        int       `json:"limit"`
+	Offset       int       `json:"offset"`
+}
+
+type GetChangesResponse struct {
+	Status      string          `json:"status"`
+	Error       string          `json:"error,omitempty"`
+	Records     []*RecordSync   `json:"records,omitempty"`
+	HasMore     bool            `json:"has_more,omitempty"`
+	ServerTime  time.Time       `json:"server_time,omitempty"`
+	SyncVersion int64           `json:"sync_version,omitempty"`
+	Stats       *SyncStatsBrief `json:"stats,omitempty"`
+}
+
+type BatchSyncRequest struct {
+	Records []*RecordSync `json:"records"`
+}
+
+type BatchSyncResponse struct {
+	Status    string   `json:"status"`
+	Error     string   `json:"error,omitempty"`
+	Processed int      `json:"processed,omitempty"`
+	Failed    int      `json:"failed,omitempty"`
+	Errors    []string `json:"errors,omitempty"`
+}
+
+type GetStatusResponse struct {
+	Status string      `json:"status"`
+	Error  string      `json:"error,omitempty"`
+	Data   *SyncStatus `json:"data,omitempty"`
+}
+
+type GetConflictsResponse struct {
+	Status string      `json:"status"`
+	Error  string      `json:"error,omitempty"`
+	Data   []*Conflict `json:"data,omitempty"`
+}
+
+type ResolveConflictRequest struct {
+	Resolution   string      `json:"resolution"`
+	ResolvedData *RecordSync `json:"resolved_data,omitempty"`
+}
+
+type ResolveConflictResponse struct {
+	Status  string `json:"status"`
+	Error   string `json:"error,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type GetDevicesResponse struct {
+	Status string        `json:"status"`
+	Error  string        `json:"error,omitempty"`
+	Data   []*DeviceInfo `json:"data,omitempty"`
+}
+
+type RemoveDeviceResponse struct {
+	Status  string `json:"status"`
+	Error   string `json:"error,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type SyncStatsBrief struct {
+	TotalSyncs      int     `json:"total_syncs"`
+	LastSuccessful  string  `json:"last_successful,omitempty"`
+	AvgSyncDuration float64 `json:"avg_sync_duration"`
+	TotalConflicts  int     `json:"total_conflicts"`
+	TotalResolved   int     `json:"total_resolved"`
+}
 
 // Servicer интерфейс сервиса синхронизации
 type Servicer interface {
@@ -18,16 +93,16 @@ type Servicer interface {
 	GetStatus(ctx context.Context) (*GetStatusResponse, error)
 
 	// GetConflicts возвращает список неразрешенных конфликтов
-	GetConflicts(ctx context.Context) ([]ConflictInfo, error)
+	GetConflicts(ctx context.Context) ([]*Conflict, error)
 
 	// ResolveConflict разрешает указанный конфликт
-	ResolveConflict(ctx context.Context, conflictID string, req ResolveConflictRequest) (*ResolveConflictResponse, error)
+	ResolveConflict(ctx context.Context, conflictID int, req ResolveConflictRequest) (*ResolveConflictResponse, error)
 
 	// GetDevices возвращает список устройств пользователя
-	GetDevices(ctx context.Context) ([]DeviceInfo, error)
+	GetDevices(ctx context.Context) ([]*DeviceInfo, error)
 
 	// RemoveDevice удаляет устройство из списка синхронизации
-	RemoveDevice(ctx context.Context, deviceID string) (*RemoveDeviceResponse, error)
+	RemoveDevice(ctx context.Context, deviceID int) (*RemoveDeviceResponse, error)
 }
 
 // Service реализация сервиса синхронизации
@@ -58,7 +133,7 @@ func NewService(repo Repository, log *slog.Logger, config *ServiceConfig) *Servi
 // GetChanges возвращает изменения после указанного времени
 func (s *Service) GetChanges(ctx context.Context, req GetChangesRequest) (*GetChangesResponse, error) {
 	// Получаем userID из контекста (устанавливается middleware аутентификации)
-	userID, ok := ctx.Value("user_id").(string)
+	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
 	}
@@ -126,7 +201,7 @@ func (s *Service) GetChanges(ctx context.Context, req GetChangesRequest) (*GetCh
 
 // ProcessBatch обрабатывает пакет записей для синхронизации
 func (s *Service) ProcessBatch(ctx context.Context, req BatchSyncRequest) (*BatchSyncResponse, error) {
-	userID, ok := ctx.Value("user_id").(string)
+	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
 	}
@@ -171,7 +246,7 @@ func (s *Service) ProcessBatch(ctx context.Context, req BatchSyncRequest) (*Batc
 
 // GetStatus возвращает текущий статус синхронизации
 func (s *Service) GetStatus(ctx context.Context) (*GetStatusResponse, error) {
-	userID, ok := ctx.Value("user_id").(string)
+	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
 	}
@@ -188,8 +263,8 @@ func (s *Service) GetStatus(ctx context.Context) (*GetStatusResponse, error) {
 }
 
 // GetConflicts возвращает список неразрешенных конфликтов
-func (s *Service) GetConflicts(ctx context.Context) ([]ConflictInfo, error) {
-	userID, ok := ctx.Value("user_id").(string)
+func (s *Service) GetConflicts(ctx context.Context) ([]*Conflict, error) {
+	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
 	}
@@ -203,8 +278,8 @@ func (s *Service) GetConflicts(ctx context.Context) ([]ConflictInfo, error) {
 }
 
 // ResolveConflict разрешает указанный конфликт
-func (s *Service) ResolveConflict(ctx context.Context, conflictID string, req ResolveConflictRequest) (*ResolveConflictResponse, error) {
-	userID, ok := ctx.Value("user_id").(string)
+func (s *Service) ResolveConflict(ctx context.Context, conflictID int, req ResolveConflictRequest) (*ResolveConflictResponse, error) {
+	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
 	}
@@ -220,7 +295,11 @@ func (s *Service) ResolveConflict(ctx context.Context, conflictID string, req Re
 	}
 
 	// Разрешаем конфликт
-	if err := s.repo.ResolveConflict(ctx, conflictID, req.Resolution, req.ResolvedData); err != nil {
+	resolvedData := []byte{}
+	if req.ResolvedData != nil {
+		resolvedData = req.ResolvedData.Data
+	}
+	if err := s.repo.ResolveConflict(ctx, conflictID, req.Resolution, resolvedData); err != nil {
 		return nil, fmt.Errorf("failed to resolve conflict: %w", err)
 	}
 
@@ -231,8 +310,8 @@ func (s *Service) ResolveConflict(ctx context.Context, conflictID string, req Re
 }
 
 // GetDevices возвращает список устройств пользователя
-func (s *Service) GetDevices(ctx context.Context) ([]DeviceInfo, error) {
-	userID, ok := ctx.Value("user_id").(string)
+func (s *Service) GetDevices(ctx context.Context) ([]*DeviceInfo, error) {
+	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
 	}
@@ -246,8 +325,8 @@ func (s *Service) GetDevices(ctx context.Context) ([]DeviceInfo, error) {
 }
 
 // RemoveDevice удаляет устройство из списка синхронизации
-func (s *Service) RemoveDevice(ctx context.Context, deviceID string) (*RemoveDeviceResponse, error) {
-	userID, ok := ctx.Value("user_id").(string)
+func (s *Service) RemoveDevice(ctx context.Context, deviceID int) (*RemoveDeviceResponse, error) {
+	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
 	}
@@ -274,7 +353,7 @@ func (s *Service) RemoveDevice(ctx context.Context, deviceID string) (*RemoveDev
 }
 
 // Вспомогательные методы
-func (s *Service) processBatchRecords(ctx context.Context, userID string, records []SyncRecord) (int, int, []string) {
+func (s *Service) processBatchRecords(ctx context.Context, userID int, records []*RecordSync) (int, int, []string) {
 	var processed int
 	var errors []string
 
@@ -289,15 +368,15 @@ func (s *Service) processBatchRecords(ctx context.Context, userID string, record
 			if existing.Version >= rec.Version {
 				// Серверная версия новее или равна
 				if err := s.handleConflict(ctx, userID, rec, existing); err != nil {
-					errors = append(errors, fmt.Sprintf("record %s: conflict handling failed: %v", rec.ID, err))
+					errors = append(errors, fmt.Sprintf("record %d: conflict handling failed: %v", rec.ID, err))
 				}
 				continue
 			}
 		}
 
 		// Сохраняем запись
-		if err := s.repo.SaveRecord(ctx, &rec); err != nil {
-			errors = append(errors, fmt.Sprintf("record %s: %v", rec.ID, err))
+		if err := s.repo.SaveRecord(ctx, rec); err != nil {
+			errors = append(errors, fmt.Sprintf("record %d: %v", rec.ID, err))
 			continue
 		}
 
@@ -307,15 +386,15 @@ func (s *Service) processBatchRecords(ctx context.Context, userID string, record
 	return processed, len(records) - processed, errors
 }
 
-func (s *Service) handleConflict(ctx context.Context, userID string, local, server *SyncRecord) error {
+func (s *Service) handleConflict(ctx context.Context, userID int, local, server *RecordSync) error {
 	// Создаем запись о конфликте
-	conflict := &ConflictInfo{
-		ID:           fmt.Sprintf("conflict_%s_%d", local.ID, time.Now().UnixNano()),
+	conflict := &Conflict{
 		RecordID:     local.ID,
 		UserID:       userID,
+		DeviceID:     0, // TODO: нужно получать из контекста устройства
+		LocalData:    local.Data,
+		ServerData:   server.Data,
 		ConflictType: "version_mismatch",
-		LocalRecord:  local,
-		ServerRecord: server,
 		CreatedAt:    time.Now(),
 	}
 

@@ -1,4 +1,3 @@
-// internal/domain/sync/model.go
 package sync
 
 import (
@@ -14,11 +13,13 @@ type SyncStatus struct {
 	StorageUsed  int64     `json:"storage_used"`
 	StorageLimit int64     `json:"storage_limit"`
 	SyncVersion  int64     `json:"sync_version"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // RecordSync запись для синхронизации
 type RecordSync struct {
-	ID        string            `json:"id"`
+	ID        int               `json:"id"`
 	UserID    int               `json:"user_id"`
 	Type      string            `json:"type"`
 	Metadata  map[string]string `json:"metadata"`
@@ -31,7 +32,7 @@ type RecordSync struct {
 
 // DeviceInfo информация об устройстве
 type DeviceInfo struct {
-	ID           string    `json:"id"`
+	ID           int       `json:"id"`
 	UserID       int       `json:"user_id"`
 	Name         string    `json:"name"`
 	Type         string    `json:"type"` // mobile, desktop, web
@@ -44,10 +45,10 @@ type DeviceInfo struct {
 
 // Conflict конфликт синхронизации
 type Conflict struct {
-	ID           string    `json:"id"`
-	RecordID     string    `json:"record_id"`
+	ID           int       `json:"id"`
+	RecordID     int       `json:"record_id"`
 	UserID       int       `json:"user_id"`
-	DeviceID     string    `json:"device_id"`
+	DeviceID     int       `json:"device_id"`
 	LocalData    []byte    `json:"local_data"`
 	ServerData   []byte    `json:"server_data"`
 	ConflictType string    `json:"conflict_type"`
@@ -68,6 +69,7 @@ type SyncStats struct {
 	TotalConflicts  int       `json:"total_conflicts"`
 	TotalResolved   int       `json:"total_resolved"`
 	AvgSyncDuration float64   `json:"avg_sync_duration"`
+	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
