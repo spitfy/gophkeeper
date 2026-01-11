@@ -21,9 +21,11 @@ import (
 	"gophkeeper/internal/app/server/api/http/middleware"
 	"gophkeeper/internal/app/server/api/http/middleware/auth"
 	recordAPI "gophkeeper/internal/app/server/api/http/record"
+	syncAPI "gophkeeper/internal/app/server/api/http/sync"
 	userAPI "gophkeeper/internal/app/server/api/http/user"
 	"gophkeeper/internal/domain/record"
 	"gophkeeper/internal/domain/session"
+	"gophkeeper/internal/domain/sync"
 	"gophkeeper/internal/domain/user"
 	"gophkeeper/internal/infrastructure/storage/postgres"
 )
@@ -47,6 +49,7 @@ func New(storage *postgres.Storage, log *slog.Logger) *chi.Mux {
 	h := handlers(storage, log)
 	h.User.SetupRoutes(API)
 	h.Record.SetupRoutes(API)
+	h.Sync.SetupRoutes(API)
 
 	return mux
 }
@@ -66,5 +69,14 @@ func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
 	middlewares.Add(authMW.Middleware())
 	recordHandler := recordAPI.NewHandler(recordService, log, middlewares.GetAllAndClear())
 
-	return &Handlers{User: userHandler, Record: recordHandler}
+	syncRepo := postgres.NewSyncRepository(storage, log)
+	syncService := sync.NewService(syncRepo, log, nil)
+	middlewares.Add(authMW.Middleware())
+	syncHandler := syncAPI.NewHandler(syncService, log, middlewares.GetAllAndClear())
+
+	return &Handlers{
+		User:   userHandler,
+		Record: recordHandler,
+		Sync:   syncHandler,
+	}
 }
