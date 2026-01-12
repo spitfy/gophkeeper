@@ -12,7 +12,7 @@ import (
 	"gophkeeper/internal/domain/user"
 )
 
-var registerCmd = &cobra.Command{
+var RegisterCmd = &cobra.Command{
 	Use:   "register",
 	Short: "Зарегистрировать нового пользователя",
 	Long: `Регистрация нового пользователя на сервере GophKeeper.

@@ -339,7 +339,7 @@ func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 }
 
 // ChangePassword изменяет пароль пользователя
-func (a *App) ChangePassword(ctx context.Context, req user.BaseRequest) error {
+func (a *App) ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error {
 	// Проверяем, что мастер-ключ разблокирован
 	if !a.masterKeyReady {
 		return fmt.Errorf("мастер-ключ не разблокирован")

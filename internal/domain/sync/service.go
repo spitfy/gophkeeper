@@ -9,78 +9,6 @@ import (
 	"golang.org/x/exp/slog"
 )
 
-// Структуры запросов/ответов для сервиса
-type GetChangesRequest struct {
-	LastSyncTime time.Time `json:"last_sync_time"`
-	Limit        int       `json:"limit"`
-	Offset       int       `json:"offset"`
-}
-
-type GetChangesResponse struct {
-	Status      string          `json:"status"`
-	Error       string          `json:"error,omitempty"`
-	Records     []*RecordSync   `json:"records,omitempty"`
-	HasMore     bool            `json:"has_more,omitempty"`
-	ServerTime  time.Time       `json:"server_time,omitempty"`
-	SyncVersion int64           `json:"sync_version,omitempty"`
-	Stats       *SyncStatsBrief `json:"stats,omitempty"`
-}
-
-type BatchSyncRequest struct {
-	Records []*RecordSync `json:"records"`
-}
-
-type BatchSyncResponse struct {
-	Status    string   `json:"status"`
-	Error     string   `json:"error,omitempty"`
-	Processed int      `json:"processed,omitempty"`
-	Failed    int      `json:"failed,omitempty"`
-	Errors    []string `json:"errors,omitempty"`
-}
-
-type GetStatusResponse struct {
-	Status string      `json:"status"`
-	Error  string      `json:"error,omitempty"`
-	Data   *SyncStatus `json:"data,omitempty"`
-}
-
-type GetConflictsResponse struct {
-	Status string      `json:"status"`
-	Error  string      `json:"error,omitempty"`
-	Data   []*Conflict `json:"data,omitempty"`
-}
-
-type ResolveConflictRequest struct {
-	Resolution   string      `json:"resolution"`
-	ResolvedData *RecordSync `json:"resolved_data,omitempty"`
-}
-
-type ResolveConflictResponse struct {
-	Status  string `json:"status"`
-	Error   string `json:"error,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
-type GetDevicesResponse struct {
-	Status string        `json:"status"`
-	Error  string        `json:"error,omitempty"`
-	Data   []*DeviceInfo `json:"data,omitempty"`
-}
-
-type RemoveDeviceResponse struct {
-	Status  string `json:"status"`
-	Error   string `json:"error,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
-type SyncStatsBrief struct {
-	TotalSyncs      int     `json:"total_syncs"`
-	LastSuccessful  string  `json:"last_successful,omitempty"`
-	AvgSyncDuration float64 `json:"avg_sync_duration"`
-	TotalConflicts  int     `json:"total_conflicts"`
-	TotalResolved   int     `json:"total_resolved"`
-}
-
 // Servicer интерфейс сервиса синхронизации
 type Servicer interface {
 	// GetChanges возвращает изменения после указанного времени
@@ -93,7 +21,7 @@ type Servicer interface {
 	GetStatus(ctx context.Context) (*GetStatusResponse, error)
 
 	// GetConflicts возвращает список неразрешенных конфликтов
-	GetConflicts(ctx context.Context) ([]*Conflict, error)
+	GetConflicts(ctx context.Context) (*GetConflictsResponse, error)
 
 	// ResolveConflict разрешает указанный конфликт
 	ResolveConflict(ctx context.Context, conflictID int, req ResolveConflictRequest) (*ResolveConflictResponse, error)
@@ -263,7 +191,7 @@ func (s *Service) GetStatus(ctx context.Context) (*GetStatusResponse, error) {
 }
 
 // GetConflicts возвращает список неразрешенных конфликтов
-func (s *Service) GetConflicts(ctx context.Context) ([]*Conflict, error) {
+func (s *Service) GetConflicts(ctx context.Context) (*GetConflictsResponse, error) {
 	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
@@ -274,7 +202,10 @@ func (s *Service) GetConflicts(ctx context.Context) ([]*Conflict, error) {
 		return nil, fmt.Errorf("failed to get conflicts: %w", err)
 	}
 
-	return conflicts, nil
+	return &GetConflictsResponse{
+		Status: "Ok",
+		Data:   conflicts,
+	}, nil
 }
 
 // ResolveConflict разрешает указанный конфликт
@@ -310,7 +241,7 @@ func (s *Service) ResolveConflict(ctx context.Context, conflictID int, req Resol
 }
 
 // GetDevices возвращает список устройств пользователя
-func (s *Service) GetDevices(ctx context.Context) ([]*DeviceInfo, error) {
+func (s *Service) GetDevices(ctx context.Context) (*GetDevicesResponse, error) {
 	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
@@ -321,7 +252,10 @@ func (s *Service) GetDevices(ctx context.Context) ([]*DeviceInfo, error) {
 		return nil, fmt.Errorf("failed to get devices: %w", err)
 	}
 
-	return devices, nil
+	return &GetDevicesResponse{
+		Status: "Ok",
+		Data:   devices,
+	}, nil
 }
 
 // RemoveDevice удаляет устройство из списка синхронизации
@@ -353,7 +287,7 @@ func (s *Service) RemoveDevice(ctx context.Context, deviceID int) (*RemoveDevice
 }
 
 // Вспомогательные методы
-func (s *Service) processBatchRecords(ctx context.Context, userID int, records []*RecordSync) (int, int, []string) {
+func (s *Service) processBatchRecords(ctx context.Context, userID int, records []RecordSync) (int, int, []string) {
 	var processed int
 	var errors []string
 
@@ -367,7 +301,7 @@ func (s *Service) processBatchRecords(ctx context.Context, userID int, records [
 			// Обнаружен конфликт
 			if existing.Version >= rec.Version {
 				// Серверная версия новее или равна
-				if err := s.handleConflict(ctx, userID, rec, existing); err != nil {
+				if err := s.handleConflict(ctx, userID, rec, *existing); err != nil {
 					errors = append(errors, fmt.Sprintf("record %d: conflict handling failed: %v", rec.ID, err))
 				}
 				continue
@@ -375,7 +309,7 @@ func (s *Service) processBatchRecords(ctx context.Context, userID int, records [
 		}
 
 		// Сохраняем запись
-		if err := s.repo.SaveRecord(ctx, rec); err != nil {
+		if err := s.repo.SaveRecord(ctx, &rec); err != nil {
 			errors = append(errors, fmt.Sprintf("record %d: %v", rec.ID, err))
 			continue
 		}
@@ -386,7 +320,7 @@ func (s *Service) processBatchRecords(ctx context.Context, userID int, records [
 	return processed, len(records) - processed, errors
 }
 
-func (s *Service) handleConflict(ctx context.Context, userID int, local, server *RecordSync) error {
+func (s *Service) handleConflict(ctx context.Context, userID int, local, server RecordSync) error {
 	// Создаем запись о конфликте
 	conflict := &Conflict{
 		RecordID:     local.ID,

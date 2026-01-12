@@ -12,7 +12,7 @@ import (
 	"gophkeeper/internal/domain/user"
 )
 
-var changePasswordCmd = &cobra.Command{
+var ChangePasswordCmd = &cobra.Command{
 	Use:   "change-password",
 	Short: "Изменить пароль пользователя",
 	Long: `Изменение пароля пользователя на сервере GophKeeper.

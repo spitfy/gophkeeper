@@ -18,7 +18,7 @@ var (
 	rememberMe bool
 )
 
-var loginCmd = &cobra.Command{
+var LoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Войти в систему GophKeeper",
 	Long: `Аутентификация на сервере GophKeeper.
@@ -97,5 +97,5 @@ var loginCmd = &cobra.Command{
 }
 
 func init() {
-	loginCmd.Flags().BoolVarP(&rememberMe, "remember", "r", false, "запомнить меня (сохранить токен)")
+	LoginCmd.Flags().BoolVarP(&rememberMe, "remember", "r", false, "запомнить меня (сохранить токен)")
 }

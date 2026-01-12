@@ -17,7 +17,7 @@ var (
 	showPassword bool
 )
 
-var getCmd = &cobra.Command{
+var GetCmd = &cobra.Command{
 	Use:   "get [id]",
 	Short: "Просмотреть запись",
 	Long: `Просмотр содержимого записи по ID.
@@ -33,7 +33,7 @@ var getCmd = &cobra.Command{
 		recordID := args[0]
 
 		// Получаем запись
-		rec, err := app.GetRecord(cmd.Context(), recordID)
+		rec, err := app.GetRecord(cmd.Context(), recordID, false)
 		if err != nil {
 			return fmt.Errorf("ошибка получения записи: %w", err)
 		}
@@ -53,22 +53,21 @@ var getCmd = &cobra.Command{
 func printRecordHuman(rec *record.Record, showPassword bool) error {
 	fmt.Printf("ID:          %s\n", rec.ID)
 	fmt.Printf("Тип:         %s\n", rec.Type)
-	fmt.Printf("Название:    %s\n", rec.Metadata.Name)
+	fmt.Printf("Название:    %s\n", rec.Meta.Name)
 
 	if rec.Metadata.Description != "" {
 		fmt.Printf("Описание:    %s\n", rec.Metadata.Description)
 	}
 
-	fmt.Printf("Создано:     %s\n", rec.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Printf("Обновлено:   %s\n", rec.UpdatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Обновлено:   %s\n", rec.LastModified.Format("2006-01-02 15:04:05"))
 	fmt.Printf("Версия:      %d\n", rec.Version)
 	fmt.Println()
 
 	// Выводим данные в зависимости от типа
 	switch rec.Type {
-	case record.TypePassword:
+	case record.RecTypeLogin:
 		var data map[string]string
-		if err := json.Unmarshal(rec.Data, &data); err != nil {
+		if err := json.Unmarshal(rec.Meta, &data); err != nil {
 			return err
 		}
 
@@ -83,13 +82,13 @@ func printRecordHuman(rec *record.Record, showPassword bool) error {
 			fmt.Printf("URL:         %s\n", data["url"])
 		}
 
-	case record.TypeText:
+	case record.RecTypeText:
 		fmt.Println("=== Текст заметки ===")
 		fmt.Println(string(rec.Data))
 
-	case record.TypeCard:
+	case record.RecTypeCard:
 		var data map[string]string
-		if err := json.Unmarshal(rec.Data, &data); err != nil {
+		if err := json.Unmarshal(rec.Meta, &data); err != nil {
 			return err
 		}
 
@@ -133,16 +132,16 @@ func printRecordJSON(rec *record.Record, showPassword bool) error {
 
 	// Обрабатываем данные в зависимости от типа
 	switch rec.Type {
-	case record.TypePassword, record.TypeCard:
+	case record.RecTypeLogin, record.RecTypeCard:
 		var data map[string]string
 		if err := json.Unmarshal(rec.Data, &data); err != nil {
 			return err
 		}
 
 		if !showPassword {
-			if rec.Type == record.TypePassword {
+			if rec.Type == record.RecTypeLogin {
 				data["password"] = "********"
-			} else if rec.Type == record.TypeCard {
+			} else if rec.Type == record.RecTypeCard {
 				data["cvv"] = "***"
 				data["number"] = maskCardNumber(data["number"])
 			}
@@ -172,6 +171,6 @@ func printRecordYAML(rec *record.Record, showPassword bool) error {
 }
 
 func init() {
-	getCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "формат вывода (text, json, yaml)")
-	getCmd.Flags().BoolVar(&showPassword, "show-password", false, "показывать пароли и чувствительные данные")
+	GetCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "формат вывода (text, json, yaml)")
+	GetCmd.Flags().BoolVar(&showPassword, "show-password", false, "показывать пароли и чувствительные данные")
 }

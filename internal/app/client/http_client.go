@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"golang.org/x/exp/slog"
+	"gophkeeper/internal/domain/sync"
 	"io"
 	"net/http"
 	"time"
@@ -220,30 +221,6 @@ func (h *httpClient) Register(ctx context.Context, login, password string) error
 	return h.parseResponse(resp, nil)
 }
 
-func (h *httpClient) CreateRecord(ctx context.Context, rec *record.Record) error {
-	req := record.CreateRequest{
-		Type:          rec.Type,
-		Meta:          rec.Meta,
-		EncryptedData: rec.EncryptedData,
-	}
-
-	resp, err := h.doRequest(ctx, "POST", "/api/v1/records", req)
-	if err != nil {
-		return err
-	}
-
-	var createResp struct {
-		ID int `json:"id"`
-	}
-
-	if err := h.parseResponse(resp, &createResp); err != nil {
-		return err
-	}
-
-	rec.ID = createResp.ID
-	return nil
-}
-
 func (h *httpClient) GetRecords(ctx context.Context) ([]*record.Record, error) {
 	resp, err := h.doRequest(ctx, "GET", "/api/v1/records", nil)
 	if err != nil {
@@ -277,44 +254,314 @@ func (h *httpClient) SyncRecords(ctx context.Context, records []*record.Record) 
 }
 
 // GetSyncChanges получает изменения с сервера
-func (h *httpClient) GetSyncChanges(ctx context.Context, req record.SyncRequest) ([]*Record, error) {
-	resp, err := h.doRequest(ctx, "POST", "/api/v1/sync/changes", req)
+func (c *httpClient) GetSyncChanges(ctx context.Context, req sync.GetChangesRequest) (*sync.GetChangesResponse, error) {
+	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	var syncResp struct {
-		Records []*Record `json:"records"`
-		HasMore bool      `json:"has_more"`
+	request, err := http.NewRequestWithContext(
+		ctx,
+		"POST",
+		fmt.Sprintf("%s/api/sync/changes", c.baseURL),
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if err := h.parseResponse(resp, &syncResp); err != nil {
-		return nil, err
+	request.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
-	return syncResp.Records, nil
+	response, err := c.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
+	}
+
+	var result sync.GetChangesResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if result.Status == "Error" {
+		return nil, fmt.Errorf("server error: %s", result.Error)
+	}
+
+	return &result, nil
 }
 
-// GetSyncStatus получает статус синхронизации
-func (h *httpClient) GetSyncStatus(ctx context.Context) (*SyncStatus, error) {
-	resp, err := h.doRequest(ctx, "GET", "/api/v1/sync/status", nil)
+func (c *httpClient) SendBatchSync(ctx context.Context, req sync.BatchSyncRequest) (*sync.BatchSyncResponse, error) {
+	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	var status SyncStatus
-	if err := h.parseResponse(resp, &status); err != nil {
-		return nil, err
+	request, err := http.NewRequestWithContext(
+		ctx,
+		"POST",
+		fmt.Sprintf("%s/api/sync/batch", c.baseURL),
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	return &status, nil
+	request.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	response, err := c.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
+	}
+
+	var result sync.BatchSyncResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if result.Status == "Error" {
+		return nil, fmt.Errorf("server error: %s", result.Error)
+	}
+
+	return &result, nil
 }
 
-// SyncStatus статус синхронизации на сервере
-type SyncStatus struct {
-	LastSyncTime time.Time `json:"last_sync_time"`
-	TotalRecords int       `json:"total_records"`
-	DeviceCount  int       `json:"device_count"`
-	StorageUsed  int64     `json:"storage_used"`
-	StorageLimit int64     `json:"storage_limit"`
+// GetSyncStatus получает статус синхронизации с сервера
+func (c *httpClient) GetSyncStatus(ctx context.Context) (*sync.SyncStatus, error) {
+	request, err := http.NewRequestWithContext(
+		ctx,
+		"GET",
+		fmt.Sprintf("%s/api/sync/status", c.baseURL),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	response, err := c.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
+	}
+
+	var result struct {
+		Status string           `json:"status"`
+		Error  string           `json:"error,omitempty"`
+		Data   *sync.SyncStatus `json:"data,omitempty"`
+	}
+
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if result.Status == "Error" {
+		return nil, fmt.Errorf("server error: %s", result.Error)
+	}
+
+	return result.Data, nil
+}
+
+// GetSyncConflicts получает конфликты с сервера
+func (c *httpClient) GetSyncConflicts(ctx context.Context) ([]sync.Conflict, error) {
+	request, err := http.NewRequestWithContext(
+		ctx,
+		"GET",
+		fmt.Sprintf("%s/api/sync/conflicts", c.baseURL),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	response, err := c.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
+	}
+
+	var result struct {
+		Status string          `json:"status"`
+		Error  string          `json:"error,omitempty"`
+		Data   []sync.Conflict `json:"data,omitempty"`
+	}
+
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if result.Status == "Error" {
+		return nil, fmt.Errorf("server error: %s", result.Error)
+	}
+
+	return result.Data, nil
+}
+
+// ResolveConflict разрешает конфликт на сервере
+func (c *httpClient) ResolveConflict(ctx context.Context, conflictID int, resolution string, record *sync.RecordSync) error {
+	req := sync.ResolveConflictRequest{
+		Resolution:   resolution,
+		ResolvedData: record,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	request, err := http.NewRequestWithContext(
+		ctx,
+		"POST",
+		fmt.Sprintf("%s/api/sync/conflicts/%d/resolve", c.baseURL, conflictID),
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	response, err := c.client.Do(request)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status: %d", response.StatusCode)
+	}
+
+	var result sync.ResolveConflictResponse
+
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if result.Status == "Error" {
+		return fmt.Errorf("server error: %s", result.Error)
+	}
+
+	return nil
+}
+
+// GetDevices получает список устройств с сервера
+func (c *httpClient) GetDevices(ctx context.Context) ([]sync.DeviceInfo, error) {
+	request, err := http.NewRequestWithContext(
+		ctx,
+		"GET",
+		fmt.Sprintf("%s/api/sync/devices", c.baseURL),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	response, err := c.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
+	}
+
+	var result struct {
+		Status string            `json:"status"`
+		Error  string            `json:"error,omitempty"`
+		Data   []sync.DeviceInfo `json:"data,omitempty"`
+	}
+
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if result.Status == "Error" {
+		return nil, fmt.Errorf("server error: %s", result.Error)
+	}
+
+	return result.Data, nil
+}
+
+// RemoveDevice удаляет устройство на сервере
+func (c *httpClient) RemoveDevice(ctx context.Context, deviceID int) error {
+	request, err := http.NewRequestWithContext(
+		ctx,
+		"DELETE",
+		fmt.Sprintf("%s/api/sync/devices/%d", c.baseURL, deviceID),
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	response, err := c.client.Do(request)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status: %d", response.StatusCode)
+	}
+
+	var result struct {
+		Status  string `json:"status"`
+		Error   string `json:"error,omitempty"`
+		Message string `json:"message,omitempty"`
+	}
+
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if result.Status == "Error" {
+		return fmt.Errorf("server error: %s", result.Error)
+	}
+
+	return nil
 }
