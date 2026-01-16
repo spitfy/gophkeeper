@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/exp/slog"
-	"gophkeeper/internal/domain/sync"
 	"io"
 	"net/http"
 	"time"
 
+	"golang.org/x/exp/slog"
+
 	"gophkeeper/internal/app/client/config"
 	"gophkeeper/internal/domain/record"
+	"gophkeeper/internal/domain/sync"
 	"gophkeeper/internal/domain/user"
 )
 
@@ -58,6 +59,11 @@ func (h *httpClient) SetToken(token string) {
 	h.token = token
 }
 
+// setAuthToken устанавливает токен аутентификации (alias для SetToken)
+func (h *httpClient) setAuthToken(token string) {
+	h.token = token
+}
+
 // HealthCheck проверяет доступность сервера
 func (h *httpClient) HealthCheck(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", h.baseURL+"/api/v1/health", nil)
@@ -80,44 +86,6 @@ func (h *httpClient) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// CreateRecord создает запись на сервере
-func (h *httpClient) CreateRecord(ctx context.Context, req record.CreateRequest) (string, error) {
-	resp, err := h.doRequest(ctx, "POST", "/api/v1/records", req)
-	if err != nil {
-		return "", err
-	}
-
-	var createResp struct {
-		ID string `json:"id"`
-	}
-
-	if err := h.parseResponse(resp, &createResp); err != nil {
-		return "", err
-	}
-
-	return createResp.ID, nil
-}
-
-// UpdateRecord обновляет запись на сервере
-func (h *httpClient) UpdateRecord(ctx context.Context, id string, req record.UpdateRequest) error {
-	resp, err := h.doRequest(ctx, "PUT", "/api/v1/records/"+id, req)
-	if err != nil {
-		return err
-	}
-
-	return h.parseResponse(resp, nil)
-}
-
-// ChangePassword меняет пароль пользователя
-func (h *httpClient) ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error {
-	resp, err := h.doRequest(ctx, "POST", "/api/v1/auth/change-password", req)
-	if err != nil {
-		return err
-	}
-
-	return h.parseResponse(resp, nil)
-}
-
 func (h *httpClient) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
 	var reqBody io.Reader
 	if body != nil {
@@ -135,6 +103,7 @@ func (h *httpClient) doRequest(ctx context.Context, method, path string, body in
 
 	// Добавляем заголовки
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", h.userAgent)
 	if h.token != "" {
 		req.Header.Set("Authorization", "Bearer "+h.token)
 	}
@@ -167,7 +136,8 @@ func (h *httpClient) parseResponse(resp *http.Response, result interface{}) erro
 
 	if resp.StatusCode >= 400 {
 		var errResp struct {
-			Error string `json:"error"`
+			Error  string `json:"error"`
+			Status string `json:"status"`
 		}
 		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error != "" {
 			return fmt.Errorf("ошибка сервера: %s", errResp.Error)
@@ -175,7 +145,7 @@ func (h *httpClient) parseResponse(resp *http.Response, result interface{}) erro
 		return fmt.Errorf("ошибка сервера: статус %d", resp.StatusCode)
 	}
 
-	if result != nil {
+	if result != nil && len(body) > 0 {
 		if err := json.Unmarshal(body, result); err != nil {
 			return fmt.Errorf("ошибка парсинга ответа: %w", err)
 		}
@@ -184,6 +154,9 @@ func (h *httpClient) parseResponse(resp *http.Response, result interface{}) erro
 	return nil
 }
 
+// ==================== Auth API ====================
+
+// Login выполняет вход пользователя
 func (h *httpClient) Login(ctx context.Context, login, password string) (string, error) {
 	req := user.BaseRequest{
 		Login:    login,
@@ -196,17 +169,24 @@ func (h *httpClient) Login(ctx context.Context, login, password string) (string,
 	}
 
 	var loginResp struct {
-		Token string `json:"token"`
+		Token  string `json:"token"`
+		Status string `json:"status"`
+		Error  string `json:"error"`
 	}
 
 	if err := h.parseResponse(resp, &loginResp); err != nil {
 		return "", err
 	}
 
+	if loginResp.Status == "Error" {
+		return "", fmt.Errorf("ошибка входа: %s", loginResp.Error)
+	}
+
 	h.setAuthToken(loginResp.Token)
 	return loginResp.Token, nil
 }
 
+// Register регистрирует нового пользователя
 func (h *httpClient) Register(ctx context.Context, login, password string) error {
 	req := user.BaseRequest{
 		Login:    login,
@@ -218,34 +198,26 @@ func (h *httpClient) Register(ctx context.Context, login, password string) error
 		return err
 	}
 
-	return h.parseResponse(resp, nil)
+	var registerResp struct {
+		ID     int    `json:"user_id"`
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+
+	if err := h.parseResponse(resp, &registerResp); err != nil {
+		return err
+	}
+
+	if registerResp.Status == "Error" {
+		return fmt.Errorf("ошибка регистрации: %s", registerResp.Error)
+	}
+
+	return nil
 }
 
-func (h *httpClient) GetRecords(ctx context.Context) ([]*record.Record, error) {
-	resp, err := h.doRequest(ctx, "GET", "/api/v1/records", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var recordsResp struct {
-		Records []*record.Record `json:"records"`
-	}
-
-	if err := h.parseResponse(resp, &recordsResp); err != nil {
-		return nil, err
-	}
-
-	return recordsResp.Records, nil
-}
-
-func (h *httpClient) SyncRecords(ctx context.Context, records []*record.Record) error {
-	req := struct {
-		Records []*record.Record `json:"records"`
-	}{
-		Records: records,
-	}
-
-	resp, err := h.doRequest(ctx, "POST", "/api/v1/records/sync", req)
+// ChangePassword меняет пароль пользователя
+func (h *httpClient) ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error {
+	resp, err := h.doRequest(ctx, "POST", "/api/v1/auth/change-password", req)
 	if err != nil {
 		return err
 	}
@@ -253,40 +225,266 @@ func (h *httpClient) SyncRecords(ctx context.Context, records []*record.Record) 
 	return h.parseResponse(resp, nil)
 }
 
+// ==================== Records API ====================
+
+// RecordResponse - ответ сервера на операции с записями
+type RecordResponse struct {
+	ID      int    `json:"id,omitempty"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// CreateLoginRequest - запрос на создание записи логина
+type CreateLoginRequest struct {
+	Username  string   `json:"username"`
+	Password  string   `json:"password"`
+	Notes     string   `json:"notes,omitempty"`
+	Title     string   `json:"title"`
+	Resource  string   `json:"resource"`
+	Category  string   `json:"category,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
+	TwoFA     bool     `json:"two_fa,omitempty"`
+	TwoFAType string   `json:"two_fa_type,omitempty"`
+	DeviceID  string   `json:"device_id,omitempty"`
+}
+
+// CreateTextRequest - запрос на создание текстовой записи
+type CreateTextRequest struct {
+	Content     string   `json:"content"`
+	Title       string   `json:"title"`
+	Category    string   `json:"category,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Format      string   `json:"format,omitempty"`
+	Language    string   `json:"language,omitempty"`
+	IsSensitive bool     `json:"is_sensitive,omitempty"`
+	DeviceID    string   `json:"device_id,omitempty"`
+}
+
+// CreateCardRequest - запрос на создание записи карты
+type CreateCardRequest struct {
+	CardNumber     string   `json:"card_number"`
+	CardHolder     string   `json:"card_holder"`
+	ExpiryMonth    string   `json:"expiry_month"`
+	ExpiryYear     string   `json:"expiry_year"`
+	CVV            string   `json:"cvv"`
+	PIN            string   `json:"pin,omitempty"`
+	BillingAddress string   `json:"billing_address,omitempty"`
+	Title          string   `json:"title"`
+	BankName       string   `json:"bank_name,omitempty"`
+	PaymentSystem  string   `json:"payment_system,omitempty"`
+	Category       string   `json:"category,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	Notes          string   `json:"notes,omitempty"`
+	IsVirtual      bool     `json:"is_virtual,omitempty"`
+	IsActive       bool     `json:"is_active,omitempty"`
+	DailyLimit     *float64 `json:"daily_limit,omitempty"`
+	PhoneNumber    string   `json:"phone_number,omitempty"`
+	DeviceID       string   `json:"device_id,omitempty"`
+}
+
+// CreateBinaryRequest - запрос на создание бинарной записи
+type CreateBinaryRequest struct {
+	Data        string   `json:"data"` // base64
+	Filename    string   `json:"filename"`
+	ContentType string   `json:"content_type,omitempty"`
+	Title       string   `json:"title"`
+	Category    string   `json:"category,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Description string   `json:"description,omitempty"`
+	DeviceID    string   `json:"device_id,omitempty"`
+}
+
+// GenericRecordRequest - generic запрос на создание записи
+type GenericRecordRequest struct {
+	Type record.RecType  `json:"type"`
+	Data string          `json:"data"` // base64 encrypted data
+	Meta json.RawMessage `json:"meta"`
+}
+
+// CreateRecord создает запись на сервере (generic)
+func (h *httpClient) CreateRecord(ctx context.Context, req GenericRecordRequest) (int, error) {
+	resp, err := h.doRequest(ctx, "POST", "/api/records", req)
+	if err != nil {
+		return 0, err
+	}
+
+	var createResp RecordResponse
+	if err := h.parseResponse(resp, &createResp); err != nil {
+		return 0, err
+	}
+
+	if createResp.Status == "Error" {
+		return 0, fmt.Errorf("ошибка создания записи: %s", createResp.Error)
+	}
+
+	return createResp.ID, nil
+}
+
+// CreateLoginRecord создает запись логина на сервере
+func (h *httpClient) CreateLoginRecord(ctx context.Context, req CreateLoginRequest) (int, error) {
+	resp, err := h.doRequest(ctx, "POST", "/api/records/login", req)
+	if err != nil {
+		return 0, err
+	}
+
+	var createResp RecordResponse
+	if err := h.parseResponse(resp, &createResp); err != nil {
+		return 0, err
+	}
+
+	if createResp.Status == "Error" {
+		return 0, fmt.Errorf("ошибка создания записи: %s", createResp.Error)
+	}
+
+	return createResp.ID, nil
+}
+
+// CreateTextRecord создает текстовую запись на сервере
+func (h *httpClient) CreateTextRecord(ctx context.Context, req CreateTextRequest) (int, error) {
+	resp, err := h.doRequest(ctx, "POST", "/api/records/text", req)
+	if err != nil {
+		return 0, err
+	}
+
+	var createResp RecordResponse
+	if err := h.parseResponse(resp, &createResp); err != nil {
+		return 0, err
+	}
+
+	if createResp.Status == "Error" {
+		return 0, fmt.Errorf("ошибка создания записи: %s", createResp.Error)
+	}
+
+	return createResp.ID, nil
+}
+
+// CreateCardRecord создает запись карты на сервере
+func (h *httpClient) CreateCardRecord(ctx context.Context, req CreateCardRequest) (int, error) {
+	resp, err := h.doRequest(ctx, "POST", "/api/records/card", req)
+	if err != nil {
+		return 0, err
+	}
+
+	var createResp RecordResponse
+	if err := h.parseResponse(resp, &createResp); err != nil {
+		return 0, err
+	}
+
+	if createResp.Status == "Error" {
+		return 0, fmt.Errorf("ошибка создания записи: %s", createResp.Error)
+	}
+
+	return createResp.ID, nil
+}
+
+// CreateBinaryRecord создает бинарную запись на сервере
+func (h *httpClient) CreateBinaryRecord(ctx context.Context, req CreateBinaryRequest) (int, error) {
+	resp, err := h.doRequest(ctx, "POST", "/api/records/binary", req)
+	if err != nil {
+		return 0, err
+	}
+
+	var createResp RecordResponse
+	if err := h.parseResponse(resp, &createResp); err != nil {
+		return 0, err
+	}
+
+	if createResp.Status == "Error" {
+		return 0, fmt.Errorf("ошибка создания записи: %s", createResp.Error)
+	}
+
+	return createResp.ID, nil
+}
+
+// UpdateRecord обновляет запись на сервере
+func (h *httpClient) UpdateRecord(ctx context.Context, id int, req GenericRecordRequest) error {
+	resp, err := h.doRequest(ctx, "PUT", fmt.Sprintf("/api/records/%d", id), req)
+	if err != nil {
+		return err
+	}
+
+	var updateResp RecordResponse
+	if err := h.parseResponse(resp, &updateResp); err != nil {
+		return err
+	}
+
+	if updateResp.Status == "Error" {
+		return fmt.Errorf("ошибка обновления записи: %s", updateResp.Error)
+	}
+
+	return nil
+}
+
+// DeleteRecord удаляет запись на сервере
+func (h *httpClient) DeleteRecord(ctx context.Context, id int) error {
+	resp, err := h.doRequest(ctx, "DELETE", fmt.Sprintf("/api/records/%d", id), nil)
+	if err != nil {
+		return err
+	}
+
+	var deleteResp RecordResponse
+	if err := h.parseResponse(resp, &deleteResp); err != nil {
+		return err
+	}
+
+	if deleteResp.Status == "Error" {
+		return fmt.Errorf("ошибка удаления записи: %s", deleteResp.Error)
+	}
+
+	return nil
+}
+
+// GetRecord получает запись с сервера
+func (h *httpClient) GetRecord(ctx context.Context, id int) (*record.Record, error) {
+	resp, err := h.doRequest(ctx, "GET", fmt.Sprintf("/api/records/%d", id), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var findResp struct {
+		Status string         `json:"status"`
+		Record *record.Record `json:"record"`
+		Error  string         `json:"error,omitempty"`
+	}
+
+	if err := h.parseResponse(resp, &findResp); err != nil {
+		return nil, err
+	}
+
+	if findResp.Status == "Error" {
+		return nil, fmt.Errorf("ошибка получения записи: %s", findResp.Error)
+	}
+
+	return findResp.Record, nil
+}
+
+// ListRecords получает список записей с сервера
+func (h *httpClient) ListRecords(ctx context.Context) (*record.ListResponse, error) {
+	resp, err := h.doRequest(ctx, "GET", "/api/records", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var listResp record.ListResponse
+	if err := h.parseResponse(resp, &listResp); err != nil {
+		return nil, err
+	}
+
+	return &listResp, nil
+}
+
+// ==================== Sync API ====================
+
 // GetSyncChanges получает изменения с сервера
-func (c *httpClient) GetSyncChanges(ctx context.Context, req sync.GetChangesRequest) (*sync.GetChangesResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	request, err := http.NewRequestWithContext(
-		ctx,
-		"POST",
-		fmt.Sprintf("%s/api/sync/changes", c.baseURL),
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	request.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
-	}
-
-	response, err := c.client.Do(request)
+func (h *httpClient) GetSyncChanges(ctx context.Context, req sync.GetChangesRequest) (*sync.GetChangesResponse, error) {
+	resp, err := h.doRequest(ctx, "POST", "/api/sync/changes", req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
-	}
 
 	var result sync.GetChangesResponse
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	if err := h.parseResponse(resp, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -297,39 +495,15 @@ func (c *httpClient) GetSyncChanges(ctx context.Context, req sync.GetChangesRequ
 	return &result, nil
 }
 
-func (c *httpClient) SendBatchSync(ctx context.Context, req sync.BatchSyncRequest) (*sync.BatchSyncResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	request, err := http.NewRequestWithContext(
-		ctx,
-		"POST",
-		fmt.Sprintf("%s/api/sync/batch", c.baseURL),
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	request.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
-	}
-
-	response, err := c.client.Do(request)
+// SendBatchSync отправляет пакет записей для синхронизации
+func (h *httpClient) SendBatchSync(ctx context.Context, req sync.BatchSyncRequest) (*sync.BatchSyncResponse, error) {
+	resp, err := h.doRequest(ctx, "POST", "/api/sync/batch", req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
-	}
 
 	var result sync.BatchSyncResponse
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	if err := h.parseResponse(resp, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -341,39 +515,14 @@ func (c *httpClient) SendBatchSync(ctx context.Context, req sync.BatchSyncReques
 }
 
 // GetSyncStatus получает статус синхронизации с сервера
-func (c *httpClient) GetSyncStatus(ctx context.Context) (*sync.SyncStatus, error) {
-	request, err := http.NewRequestWithContext(
-		ctx,
-		"GET",
-		fmt.Sprintf("%s/api/sync/status", c.baseURL),
-		nil,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	request.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
-	}
-
-	response, err := c.client.Do(request)
+func (h *httpClient) GetSyncStatus(ctx context.Context) (*sync.SyncStatus, error) {
+	resp, err := h.doRequest(ctx, "GET", "/api/sync/status", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer response.Body.Close()
 
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
-	}
-
-	var result struct {
-		Status string           `json:"status"`
-		Error  string           `json:"error,omitempty"`
-		Data   *sync.SyncStatus `json:"data,omitempty"`
-	}
-
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	var result sync.GetStatusResponse
+	if err := h.parseResponse(resp, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -385,39 +534,14 @@ func (c *httpClient) GetSyncStatus(ctx context.Context) (*sync.SyncStatus, error
 }
 
 // GetSyncConflicts получает конфликты с сервера
-func (c *httpClient) GetSyncConflicts(ctx context.Context) ([]sync.Conflict, error) {
-	request, err := http.NewRequestWithContext(
-		ctx,
-		"GET",
-		fmt.Sprintf("%s/api/sync/conflicts", c.baseURL),
-		nil,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	request.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
-	}
-
-	response, err := c.client.Do(request)
+func (h *httpClient) GetSyncConflicts(ctx context.Context) ([]sync.Conflict, error) {
+	resp, err := h.doRequest(ctx, "GET", "/api/sync/conflicts", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer response.Body.Close()
 
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
-	}
-
-	var result struct {
-		Status string          `json:"status"`
-		Error  string          `json:"error,omitempty"`
-		Data   []sync.Conflict `json:"data,omitempty"`
-	}
-
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	var result sync.GetConflictsResponse
+	if err := h.parseResponse(resp, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -429,45 +553,14 @@ func (c *httpClient) GetSyncConflicts(ctx context.Context) ([]sync.Conflict, err
 }
 
 // ResolveConflict разрешает конфликт на сервере
-func (c *httpClient) ResolveConflict(ctx context.Context, conflictID int, resolution string, record *sync.RecordSync) error {
-	req := sync.ResolveConflictRequest{
-		Resolution:   resolution,
-		ResolvedData: record,
-	}
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	request, err := http.NewRequestWithContext(
-		ctx,
-		"POST",
-		fmt.Sprintf("%s/api/sync/conflicts/%d/resolve", c.baseURL, conflictID),
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	request.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
-	}
-
-	response, err := c.client.Do(request)
+func (h *httpClient) ResolveConflict(ctx context.Context, conflictID int, req sync.ResolveConflictRequest) error {
+	resp, err := h.doRequest(ctx, "POST", fmt.Sprintf("/api/sync/conflicts/%d/resolve", conflictID), req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status: %d", response.StatusCode)
-	}
 
 	var result sync.ResolveConflictResponse
-
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	if err := h.parseResponse(resp, &result); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -479,39 +572,14 @@ func (c *httpClient) ResolveConflict(ctx context.Context, conflictID int, resolu
 }
 
 // GetDevices получает список устройств с сервера
-func (c *httpClient) GetDevices(ctx context.Context) ([]sync.DeviceInfo, error) {
-	request, err := http.NewRequestWithContext(
-		ctx,
-		"GET",
-		fmt.Sprintf("%s/api/sync/devices", c.baseURL),
-		nil,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	request.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
-	}
-
-	response, err := c.client.Do(request)
+func (h *httpClient) GetDevices(ctx context.Context) ([]sync.DeviceInfo, error) {
+	resp, err := h.doRequest(ctx, "GET", "/api/sync/devices", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer response.Body.Close()
 
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned status: %d", response.StatusCode)
-	}
-
-	var result struct {
-		Status string            `json:"status"`
-		Error  string            `json:"error,omitempty"`
-		Data   []sync.DeviceInfo `json:"data,omitempty"`
-	}
-
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	var result sync.GetDevicesResponse
+	if err := h.parseResponse(resp, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -523,39 +591,14 @@ func (c *httpClient) GetDevices(ctx context.Context) ([]sync.DeviceInfo, error) 
 }
 
 // RemoveDevice удаляет устройство на сервере
-func (c *httpClient) RemoveDevice(ctx context.Context, deviceID int) error {
-	request, err := http.NewRequestWithContext(
-		ctx,
-		"DELETE",
-		fmt.Sprintf("%s/api/sync/devices/%d", c.baseURL, deviceID),
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	request.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
-	}
-
-	response, err := c.client.Do(request)
+func (h *httpClient) RemoveDevice(ctx context.Context, deviceID int) error {
+	resp, err := h.doRequest(ctx, "DELETE", fmt.Sprintf("/api/sync/devices/%d", deviceID), nil)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer response.Body.Close()
 
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status: %d", response.StatusCode)
-	}
-
-	var result struct {
-		Status  string `json:"status"`
-		Error   string `json:"error,omitempty"`
-		Message string `json:"message,omitempty"`
-	}
-
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	var result sync.RemoveDeviceResponse
+	if err := h.parseResponse(resp, &result); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 

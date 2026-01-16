@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/exp/slog"
 	"os"
-	"sync"
+	gosync "sync"
 	"time"
 
+	"golang.org/x/exp/slog"
+
 	"gophkeeper/internal/domain/record"
+	"gophkeeper/internal/domain/sync"
 )
 
 // SyncService управляет синхронизацией данных между клиентом и сервером
@@ -18,7 +20,7 @@ type SyncService struct {
 	app        *App
 	log        *slog.Logger
 	config     *SyncConfig
-	mu         sync.RWMutex
+	mu         gosync.RWMutex
 	lastSync   time.Time
 	isSyncing  bool
 	syncErrors []SyncError
@@ -38,7 +40,7 @@ type SyncConfig struct {
 
 // SyncError ошибка синхронизации
 type SyncError struct {
-	RecordID  string    `json:"record_id"`
+	RecordID  int       `json:"record_id"`
 	Error     string    `json:"error"`
 	Operation string    `json:"operation"`
 	Timestamp time.Time `json:"timestamp"`
@@ -67,81 +69,24 @@ type SyncMetadata struct {
 	ClientVersion string    `json:"client_version"`
 }
 
-type SyncStatus struct {
-	UserID       int       `json:"user_id"`
-	LastSyncTime time.Time `json:"last_sync_time"`
-	TotalRecords int       `json:"total_records"`
-	DeviceCount  int       `json:"device_count"`
-	StorageUsed  int64     `json:"storage_used"`
-	StorageLimit int64     `json:"storage_limit"`
-	SyncVersion  int64     `json:"sync_version"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-// RecordSync запись для синхронизации (доменная модель)
-type RecordSync struct {
-	ID        int               `json:"id"`
-	UserID    int               `json:"user_id"`
-	Type      string            `json:"type"`
-	Metadata  map[string]string `json:"metadata"`
-	Data      []byte            `json:"data"`
-	Version   int               `json:"version"`
-	Deleted   bool              `json:"deleted"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
-}
-
-// DeviceInfo информация об устройстве
-type DeviceInfo struct {
-	ID           int       `json:"id"`
-	UserID       int       `json:"user_id"`
-	Name         string    `json:"name"`
-	Type         string    `json:"type"` // mobile, desktop, web
-	LastSyncTime time.Time `json:"last_sync_time"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	IPAddress    string    `json:"ip_address,omitempty"`
-	UserAgent    string    `json:"user_agent,omitempty"`
-}
-
-// Conflict конфликт синхронизации
-type Conflict struct {
-	ID           int       `json:"id"`
-	RecordID     int       `json:"record_id"`
-	UserID       int       `json:"user_id"`
-	DeviceID     int       `json:"device_id"`
-	LocalData    []byte    `json:"local_data"`
-	ServerData   []byte    `json:"server_data"`
-	ConflictType string    `json:"conflict_type"`
-	Resolved     bool      `json:"resolved"`
-	Resolution   string    `json:"resolution"`
-	ResolvedAt   time.Time `json:"resolved_at"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-// SyncStats статистика синхронизации
+// SyncStats статистика синхронизации (локальная версия)
 type SyncStats struct {
-	UserID          int       `json:"user_id"`
 	TotalSyncs      int       `json:"total_syncs"`
 	LastSync        time.Time `json:"last_sync"`
-	TotalUploads    int64     `json:"total_uploads"`
-	TotalDownloads  int64     `json:"total_downloads"`
+	TotalUploads    int       `json:"total_uploads"`
+	TotalDownloads  int       `json:"total_downloads"`
 	TotalConflicts  int       `json:"total_conflicts"`
 	TotalResolved   int       `json:"total_resolved"`
+	TotalErrors     int       `json:"total_errors"`
 	AvgSyncDuration float64   `json:"avg_sync_duration"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-// ServiceConfig конфигурация сервиса синхронизации
-type ServiceConfig struct {
-	BatchSize          int           `json:"batch_size"`
-	MaxSyncRecords     int           `json:"max_sync_records"`
-	ConflictTTL        time.Duration `json:"conflict_ttl"`
-	DeviceSyncInterval time.Duration `json:"device_sync_interval"`
-	StorageLimit       int64         `json:"storage_limit"`
+// LocalConflict конфликт синхронизации (локальная версия с расширенными полями)
+type LocalConflict struct {
+	sync.Conflict
+	LocalRecord  *LocalRecord `json:"local_record,omitempty"`
+	ServerRecord *LocalRecord `json:"server_record,omitempty"`
+	MergedRecord *LocalRecord `json:"merged_record,omitempty"`
 }
 
 // NewSyncService создает новый сервис синхронизации
@@ -211,7 +156,7 @@ func (s *SyncService) Sync(ctx context.Context) (*SyncResult, error) {
 	// 1. Получаем метаданные синхронизации
 	syncMeta, err := s.getSyncMetadata(ctx)
 	if err != nil {
-		s.log.Error("Ошибка получения метаданных синхронизации", err)
+		s.log.Error("Ошибка получения метаданных синхронизации", "error", err)
 		result.Errors = append(result.Errors, SyncError{
 			Error:     err.Error(),
 			Operation: "get_metadata",
@@ -226,7 +171,7 @@ func (s *SyncService) Sync(ctx context.Context) (*SyncResult, error) {
 	// 2. Получаем локальные изменения
 	localChanges, err := s.getLocalChanges(ctx, syncMeta)
 	if err != nil {
-		s.log.Error("Ошибка получения локальных изменений", err)
+		s.log.Error("Ошибка получения локальных изменений", "error", err)
 		result.Errors = append(result.Errors, SyncError{
 			Error:     err.Error(),
 			Operation: "get_local_changes",
@@ -237,7 +182,7 @@ func (s *SyncService) Sync(ctx context.Context) (*SyncResult, error) {
 	// 3. Получаем изменения с сервера
 	serverChanges, err := s.getServerChanges(ctx, syncMeta)
 	if err != nil {
-		s.log.Error("Ошибка получения изменений с сервера", err)
+		s.log.Error("Ошибка получения изменений с сервера", "error", err)
 		result.Errors = append(result.Errors, SyncError{
 			Error:     err.Error(),
 			Operation: "get_server_changes",
@@ -248,7 +193,7 @@ func (s *SyncService) Sync(ctx context.Context) (*SyncResult, error) {
 	// 4. Обнаруживаем и разрешаем конфликты
 	conflicts, err := s.detectConflicts(localChanges, serverChanges)
 	if err != nil {
-		s.log.Error("Ошибка обнаружения конфликтов", err)
+		s.log.Error("Ошибка обнаружения конфликтов", "error", err)
 		result.Errors = append(result.Errors, SyncError{
 			Error:     err.Error(),
 			Operation: "detect_conflicts",
@@ -260,7 +205,7 @@ func (s *SyncService) Sync(ctx context.Context) (*SyncResult, error) {
 	// 5. Разрешаем конфликты
 	resolvedConflicts, err := s.resolveConflicts(ctx, conflicts)
 	if err != nil {
-		s.log.Error("Ошибка разрешения конфликтов", err)
+		s.log.Error("Ошибка разрешения конфликтов", "error", err)
 		result.Errors = append(result.Errors, SyncError{
 			Error:     err.Error(),
 			Operation: "resolve_conflicts",
@@ -285,7 +230,7 @@ func (s *SyncService) Sync(ctx context.Context) (*SyncResult, error) {
 
 	// 8. Обновляем метаданные синхронизации
 	if err := s.updateSyncMetadata(ctx); err != nil {
-		s.log.Error("Ошибка обновления метаданных синхронизации", err)
+		s.log.Error("Ошибка обновления метаданных синхронизации", "error", err)
 		result.Errors = append(result.Errors, SyncError{
 			Error:     err.Error(),
 			Operation: "update_metadata",
@@ -365,101 +310,94 @@ func (s *SyncService) getSyncMetadata(ctx context.Context) (*SyncMetadata, error
 }
 
 // getLocalChanges получает локальные изменения
-func (s *SyncService) getLocalChanges(ctx context.Context, meta *SyncMetadata) ([]*Record, error) {
+func (s *SyncService) getLocalChanges(ctx context.Context, meta *SyncMetadata) ([]*LocalRecord, error) {
 	// Получаем записи, которые не синхронизированы или изменились после последней синхронизации
-	query := `
-		SELECT id, type, metadata, data, created_at, updated_at, version, synced, deleted, sync_version
-		FROM records 
-		WHERE synced = 0 OR updated_at > ? OR sync_version < ?
-		ORDER BY updated_at ASC
-		LIMIT ?
-	`
-
-	rows, err := s.app.storage.(*SQLiteStorage).db.Query(query,
-		meta.LastSyncTime.Format(time.RFC3339),
-		meta.SyncVersion,
-		s.config.BatchSize)
+	records, err := s.app.storage.GetRecordsModifiedAfter(meta.LastSyncTime, s.config.BatchSize)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка запроса локальных изменений: %w", err)
 	}
-	defer rows.Close()
 
-	var changes []*Record
-	for rows.Next() {
-		var rec Record
-		var metadataJSON string
-		var createdAt, updatedAt string
-
-		if err := rows.Scan(&rec.ID, &rec.Type, &metadataJSON, &rec.Data,
-			&createdAt, &updatedAt, &rec.Version, &rec.Synced,
-			&rec.Deleted, &rec.SyncVersion); err != nil {
-			return nil, fmt.Errorf("ошибка сканирования записи: %w", err)
-		}
-
-		// Парсим метаданные
-		if err := json.Unmarshal([]byte(metadataJSON), &rec.Metadata); err != nil {
-			return nil, fmt.Errorf("ошибка парсинга метаданных: %w", err)
-		}
-
-		// Парсим временные метки
-		rec.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		rec.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-
-		changes = append(changes, &rec)
-	}
-
-	s.log.Debug("Найдены локальные изменения", "count", len(changes))
-	return changes, nil
+	s.log.Debug("Найдены локальные изменения", "count", len(records))
+	return records, nil
 }
 
 // getServerChanges получает изменения с сервера
-func (s *SyncService) getServerChanges(ctx context.Context, meta *SyncMetadata) ([]*Record, error) {
+func (s *SyncService) getServerChanges(ctx context.Context, meta *SyncMetadata) ([]*LocalRecord, error) {
 	// Используем HTTP клиент для получения изменений с сервера
-	req := record.SyncRequest{
+	req := sync.GetChangesRequest{
 		LastSyncTime: meta.LastSyncTime,
-		SyncVersion:  meta.SyncVersion,
-		DeviceID:     meta.ClientID,
+		Limit:        s.config.BatchSize,
 	}
 
-	serverRecords, err := s.app.httpClient.GetSyncChanges(ctx, req)
+	response, err := s.app.httpClient.GetSyncChanges(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения изменений с сервера: %w", err)
 	}
 
-	s.log.Debug("Получены изменения с сервера", "count", len(serverRecords))
-	return serverRecords, nil
+	// Конвертируем серверные записи в локальные
+	var records []*LocalRecord
+	for _, syncRec := range response.Records {
+		localRec := &LocalRecord{
+			ServerID:     syncRec.ID,
+			UserID:       syncRec.UserID,
+			Type:         record.RecType(syncRec.Type),
+			Version:      syncRec.Version,
+			LastModified: syncRec.UpdatedAt,
+			CreatedAt:    syncRec.CreatedAt,
+			Synced:       true,
+		}
+		if syncRec.Deleted {
+			now := time.Now()
+			localRec.DeletedAt = &now
+		}
+		// Конвертируем metadata map в JSON
+		if syncRec.Metadata != nil {
+			metaJSON, _ := json.Marshal(syncRec.Metadata)
+			localRec.Meta = metaJSON
+		}
+		localRec.EncryptedData = string(syncRec.Data)
+		records = append(records, localRec)
+	}
+
+	s.log.Debug("Получены изменения с сервера", "count", len(records))
+	return records, nil
 }
 
 // detectConflicts обнаруживает конфликты между локальными и серверными изменениями
-func (s *SyncService) detectConflicts(localChanges, serverChanges []*Record) ([]*Conflict, error) {
-	var conflicts []*Conflict
+func (s *SyncService) detectConflicts(localChanges, serverChanges []*LocalRecord) ([]*LocalConflict, error) {
+	var conflicts []*LocalConflict
 
-	// Создаем карту для быстрого поиска записей по ID
-	localMap := make(map[string]*Record)
+	// Создаем карту для быстрого поиска записей по ServerID
+	localMap := make(map[int]*LocalRecord)
 	for _, rec := range localChanges {
-		localMap[rec.ID] = rec
+		if rec.ServerID > 0 {
+			localMap[rec.ServerID] = rec
+		}
 	}
 
-	serverMap := make(map[string]*Record)
+	serverMap := make(map[int]*LocalRecord)
 	for _, rec := range serverChanges {
-		serverMap[rec.ID] = rec
+		serverMap[rec.ServerID] = rec
 	}
 
 	// Проверяем каждую запись на конфликты
-	checkedIDs := make(map[string]bool)
+	checkedIDs := make(map[int]bool)
 
 	// Проверяем локальные изменения
 	for _, localRec := range localChanges {
-		if checkedIDs[localRec.ID] {
+		if localRec.ServerID == 0 {
+			continue // Новая локальная запись, не может быть конфликта
+		}
+		if checkedIDs[localRec.ServerID] {
 			continue
 		}
-		checkedIDs[localRec.ID] = true
+		checkedIDs[localRec.ServerID] = true
 
-		if serverRec, exists := serverMap[localRec.ID]; exists {
+		if serverRec, exists := serverMap[localRec.ServerID]; exists {
 			// Обе стороны изменили запись
 			conflict, err := s.checkRecordConflict(localRec, serverRec)
 			if err != nil {
-				return nil, fmt.Errorf("ошибка проверки конфликта записи %s: %w", localRec.ID, err)
+				return nil, fmt.Errorf("ошибка проверки конфликта записи %d: %w", localRec.ID, err)
 			}
 
 			if conflict != nil {
@@ -470,17 +408,17 @@ func (s *SyncService) detectConflicts(localChanges, serverChanges []*Record) ([]
 
 	// Проверяем серверные изменения, которые не были в локальных
 	for _, serverRec := range serverChanges {
-		if checkedIDs[serverRec.ID] {
+		if checkedIDs[serverRec.ServerID] {
 			continue
 		}
 
 		// Получаем локальную версию записи (если есть)
-		localRec, err := s.app.storage.GetRecord(serverRec.ID)
+		localRec, err := s.app.storage.GetRecordByServerID(serverRec.ServerID)
 		if err == nil && localRec != nil {
 			// Запись существует локально, проверяем конфликт
 			conflict, err := s.checkRecordConflict(localRec, serverRec)
 			if err != nil {
-				return nil, fmt.Errorf("ошибка проверки конфликта записи %s: %w", serverRec.ID, err)
+				return nil, fmt.Errorf("ошибка проверки конфликта записи %d: %w", serverRec.ServerID, err)
 			}
 
 			if conflict != nil {
@@ -494,47 +432,51 @@ func (s *SyncService) detectConflicts(localChanges, serverChanges []*Record) ([]
 }
 
 // checkRecordConflict проверяет конфликт между двумя версиями записи
-func (s *SyncService) checkRecordConflict(localRec, serverRec *Record) (*Conflict, error) {
-	// Если обе версии синхронизированы, конфликта нет
-	if localRec.Synced && serverRec.Synced {
+func (s *SyncService) checkRecordConflict(localRec, serverRec *LocalRecord) (*LocalConflict, error) {
+	// Если локальная запись синхронизирована, конфликта нет
+	if localRec.Synced {
 		return nil, nil
 	}
 
 	// Определяем тип конфликта
 	conflictType := "edit-edit"
 
-	if localRec.Deleted && !serverRec.Deleted {
+	localDeleted := localRec.DeletedAt != nil
+	serverDeleted := serverRec.DeletedAt != nil
+
+	if localDeleted && !serverDeleted {
 		conflictType = "delete-edit"
-	} else if !localRec.Deleted && serverRec.Deleted {
+	} else if !localDeleted && serverDeleted {
 		conflictType = "edit-delete"
-	} else if localRec.Deleted && serverRec.Deleted {
+	} else if localDeleted && serverDeleted {
 		// Обе стороны удалили запись - это не конфликт
 		return nil, nil
 	}
 
 	// Если версии совпадают, конфликта нет
 	if localRec.Version == serverRec.Version &&
-		localRec.UpdatedAt.Equal(serverRec.UpdatedAt) &&
-		localRec.Deleted == serverRec.Deleted {
+		localRec.LastModified.Equal(serverRec.LastModified) {
 		return nil, nil
 	}
 
-	return &Conflict{
-		RecordID:     localRec.ID,
+	return &LocalConflict{
+		Conflict: sync.Conflict{
+			RecordID:     localRec.ServerID,
+			ConflictType: conflictType,
+			CreatedAt:    time.Now(),
+			Resolved:     false,
+		},
 		LocalRecord:  localRec,
 		ServerRecord: serverRec,
-		ConflictType: conflictType,
-		CreatedAt:    time.Now(),
-		Resolved:     false,
 	}, nil
 }
 
 // resolveConflicts разрешает конфликты
-func (s *SyncService) resolveConflicts(ctx context.Context, conflicts []*Conflict) ([]*Conflict, error) {
-	var resolvedConflicts []*Conflict
+func (s *SyncService) resolveConflicts(ctx context.Context, conflicts []*LocalConflict) ([]*LocalConflict, error) {
+	var resolvedConflicts []*LocalConflict
 
 	for _, conflict := range conflicts {
-		var resolvedConflict *Conflict
+		var resolvedConflict *LocalConflict
 		var err error
 
 		if s.config.AutoResolve {
@@ -568,7 +510,7 @@ func (s *SyncService) resolveConflicts(ctx context.Context, conflicts []*Conflic
 }
 
 // autoResolveConflict автоматически разрешает конфликт
-func (s *SyncService) autoResolveConflict(conflict *Conflict) (*Conflict, error) {
+func (s *SyncService) autoResolveConflict(conflict *LocalConflict) (*LocalConflict, error) {
 	// Копируем конфликт
 	resolved := *conflict
 	resolved.Resolved = true
@@ -586,7 +528,7 @@ func (s *SyncService) autoResolveConflict(conflict *Conflict) (*Conflict, error)
 
 	case "newer":
 		// Выбираем более новую версию
-		if conflict.LocalRecord.UpdatedAt.After(conflict.ServerRecord.UpdatedAt) {
+		if conflict.LocalRecord.LastModified.After(conflict.ServerRecord.LastModified) {
 			resolved.Resolution = "client"
 			resolved.MergedRecord = conflict.LocalRecord
 		} else {
@@ -607,14 +549,14 @@ func (s *SyncService) autoResolveConflict(conflict *Conflict) (*Conflict, error)
 }
 
 // applyConflictResolution применяет разрешенную версию конфликта
-func (s *SyncService) applyConflictResolution(conflict *Conflict) error {
+func (s *SyncService) applyConflictResolution(conflict *LocalConflict) error {
 	if conflict.MergedRecord == nil {
 		return fmt.Errorf("отсутствует объединенная запись")
 	}
 
 	// Обновляем запись в локальном хранилище
 	conflict.MergedRecord.Synced = false // Помечаем для повторной синхронизации
-	conflict.MergedRecord.UpdatedAt = time.Now()
+	conflict.MergedRecord.LastModified = time.Now()
 
 	if conflict.Resolution == "server" {
 		// Если выбрана серверная версия, увеличиваем версию
@@ -628,67 +570,57 @@ func (s *SyncService) applyConflictResolution(conflict *Conflict) error {
 }
 
 // uploadChanges отправляет локальные изменения на сервер
-func (s *SyncService) uploadChanges(ctx context.Context, changes []*Record) (int, []SyncError) {
+func (s *SyncService) uploadChanges(ctx context.Context, changes []*LocalRecord) (int, []SyncError) {
 	var errors []SyncError
 	uploaded := 0
 
+	// Конвертируем локальные записи в формат для batch sync
+	var syncRecords []sync.RecordSync
 	for _, rec := range changes {
-		for retry := 0; retry <= s.config.MaxRetries; retry++ {
-			if retry > 0 {
-				s.log.Debug("Повторная попытка отправки записи",
-					"record_id", rec.ID,
-					"retry", retry)
-				time.Sleep(s.config.RetryDelay)
+		syncRec := sync.RecordSync{
+			ID:        rec.ServerID,
+			UserID:    rec.UserID,
+			Type:      string(rec.Type),
+			Version:   rec.Version,
+			Deleted:   rec.DeletedAt != nil,
+			CreatedAt: rec.CreatedAt,
+			UpdatedAt: rec.LastModified,
+			Data:      []byte(rec.EncryptedData),
+		}
+		// Конвертируем Meta в map
+		if rec.Meta != nil {
+			var metaMap map[string]string
+			if err := json.Unmarshal(rec.Meta, &metaMap); err == nil {
+				syncRec.Metadata = metaMap
 			}
+		}
+		syncRecords = append(syncRecords, syncRec)
+	}
 
-			var err error
-			if rec.Deleted {
-				// Отправляем удаление
-				err = s.app.httpClient.DeleteRecord(ctx, rec.ID)
-			} else if rec.Version == 1 && !rec.Synced {
-				// Новая запись
-				req := record.CreateRequest{
-					Type:     rec.Type,
-					Metadata: rec.Metadata,
-					Data:     rec.Data,
-				}
-				_, err = s.app.httpClient.CreateRecord(ctx, req)
-			} else {
-				// Обновление существующей записи
-				req := record.UpdateRequest{
-					Metadata: &rec.Metadata,
-					Data:     rec.Data,
-					Version:  rec.Version,
-				}
-				err = s.app.httpClient.UpdateRecord(ctx, rec.ID, req)
-			}
+	// Отправляем batch запрос
+	req := sync.BatchSyncRequest{
+		Records: syncRecords,
+	}
 
-			if err != nil {
-				if retry == s.config.MaxRetries {
-					errors = append(errors, SyncError{
-						RecordID:  rec.ID,
-						Error:     err.Error(),
-						Operation: "upload",
-						Timestamp: time.Now(),
-						Retry:     retry + 1,
-					})
-					s.log.Error("Ошибка отправки записи после всех попыток",
-						"record_id", rec.ID,
-						"error", err)
-				}
-				continue
-			}
+	response, err := s.app.httpClient.SendBatchSync(ctx, req)
+	if err != nil {
+		errors = append(errors, SyncError{
+			Error:     err.Error(),
+			Operation: "batch_upload",
+			Timestamp: time.Now(),
+		})
+		return 0, errors
+	}
 
-			// Помечаем запись как синхронизированную
-			rec.Synced = true
-			if err := s.app.storage.UpdateRecord(rec); err != nil {
-				s.log.Warn("Ошибка обновления статуса синхронизации",
-					"record_id", rec.ID,
-					"error", err)
-			}
+	uploaded = response.Processed
 
-			uploaded++
-			break
+	// Помечаем записи как синхронизированные
+	for _, rec := range changes {
+		rec.Synced = true
+		if err := s.app.storage.UpdateRecord(rec); err != nil {
+			s.log.Warn("Ошибка обновления статуса синхронизации",
+				"record_id", rec.ID,
+				"error", err)
 		}
 	}
 
@@ -697,20 +629,20 @@ func (s *SyncService) uploadChanges(ctx context.Context, changes []*Record) (int
 }
 
 // applyServerChanges применяет изменения с сервера
-func (s *SyncService) applyServerChanges(ctx context.Context, changes []*Record) (int, []SyncError) {
+func (s *SyncService) applyServerChanges(ctx context.Context, changes []*LocalRecord) (int, []SyncError) {
 	var errors []SyncError
 	downloaded := 0
 
 	for _, serverRec := range changes {
 		// Получаем локальную версию записи
-		localRec, err := s.app.storage.GetRecord(serverRec.ID)
+		localRec, err := s.app.storage.GetRecordByServerID(serverRec.ServerID)
 
 		if err != nil {
 			// Запись не существует локально, создаем новую
 			serverRec.Synced = true
 			if err := s.app.storage.SaveRecord(serverRec); err != nil {
 				errors = append(errors, SyncError{
-					RecordID:  serverRec.ID,
+					RecordID:  serverRec.ServerID,
 					Error:     err.Error(),
 					Operation: "download_create",
 					Timestamp: time.Now(),
@@ -720,17 +652,18 @@ func (s *SyncService) applyServerChanges(ctx context.Context, changes []*Record)
 		} else {
 			// Запись существует, обновляем
 			// Проверяем, не было ли локальных изменений
-			if !localRec.Synced && localRec.UpdatedAt.After(serverRec.UpdatedAt) {
+			if !localRec.Synced && localRec.LastModified.After(serverRec.LastModified) {
 				// Есть локальные изменения, пропускаем это обновление
 				// Конфликт уже должен был быть обработан
 				continue
 			}
 
 			// Обновляем локальную запись
+			serverRec.ID = localRec.ID // Сохраняем локальный ID
 			serverRec.Synced = true
 			if err := s.app.storage.UpdateRecord(serverRec); err != nil {
 				errors = append(errors, SyncError{
-					RecordID:  serverRec.ID,
+					RecordID:  serverRec.ServerID,
 					Error:     err.Error(),
 					Operation: "download_update",
 					Timestamp: time.Now(),
@@ -751,7 +684,7 @@ func (s *SyncService) updateSyncMetadata(ctx context.Context) error {
 	meta := &SyncMetadata{
 		ClientID:      s.app.config.ConfigDir,
 		LastSyncTime:  time.Now(),
-		SyncVersion:   s.stats.TotalSyncs + 1,
+		SyncVersion:   int64(s.stats.TotalSyncs + 1),
 		DeviceName:    getDeviceName(),
 		ClientVersion: "1.0.0",
 	}
@@ -768,15 +701,9 @@ func (s *SyncService) updateSyncMetadata(ctx context.Context) error {
 // updateStats обновляет статистику синхронизации
 func (s *SyncService) updateStats(result *SyncResult) {
 	s.stats.TotalSyncs++
-
-	if result.Success {
-		s.stats.LastSuccessful = time.Now()
-	} else {
-		s.stats.LastFailed = time.Now()
-	}
-
-	s.stats.TotalUploaded += result.Uploaded
-	s.stats.TotalDownloaded += result.Downloaded
+	s.stats.LastSync = time.Now()
+	s.stats.TotalUploads += result.Uploaded
+	s.stats.TotalDownloads += result.Downloaded
 	s.stats.TotalConflicts += result.Conflicts
 	s.stats.TotalResolved += result.Resolved
 	s.stats.TotalErrors += len(result.Errors)
@@ -855,12 +782,12 @@ func (s *SyncService) saveStats() {
 
 	data, err := json.MarshalIndent(s.stats, "", "  ")
 	if err != nil {
-		s.log.Error("Ошибка сериализации статистики", err)
+		s.log.Error("Ошибка сериализации статистики", "error", err)
 		return
 	}
 
 	if err := os.WriteFile(statsPath, data, 0600); err != nil {
-		s.log.Error("Ошибка записи статистики", err)
+		s.log.Error("Ошибка записи статистики", "error", err)
 	}
 }
 
@@ -912,7 +839,7 @@ func (s *SyncService) StartAutoSync(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if _, err := s.Sync(ctx); err != nil {
-				s.log.Error("Ошибка автоматической синхронизации", err)
+				s.log.Error("Ошибка автоматической синхронизации", "error", err)
 			}
 		}
 	}

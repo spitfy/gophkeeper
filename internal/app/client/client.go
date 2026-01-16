@@ -4,18 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/docker/docker/daemon/logger"
-	"golang.org/x/exp/slog"
-	"gophkeeper/internal/domain/record"
-	"gophkeeper/internal/domain/user"
 	"os"
 	"os/signal"
-	"sync"
+	gosync "sync"
 	"syscall"
 	"time"
 
+	"golang.org/x/exp/slog"
+
 	"gophkeeper/internal/app/client/config"
 	"gophkeeper/internal/app/client/crypto"
+	"gophkeeper/internal/domain/record"
+	"gophkeeper/internal/domain/sync"
+	"gophkeeper/internal/domain/user"
 )
 
 type App struct {
@@ -23,46 +24,24 @@ type App struct {
 	log            *slog.Logger
 	crypto         *crypto.MasterKeyManager
 	encryptor      *crypto.RecordEncryptor
-	httpClient     *HTTPClient
+	httpClient     *httpClient
 	storage        Storage
-	sync           *SyncService
+	syncService    *SyncService
 	state          *AppState
 	masterKeyReady bool
 	authenticated  bool
-	wg             sync.WaitGroup
+	wg             gosync.WaitGroup
 	cancel         context.CancelFunc
-	mu             sync.RWMutex
+	mu             gosync.RWMutex
 }
 
 // AppState хранит состояние приложения
 type AppState struct {
 	Initialized   bool      `json:"initialized"`
-	UserEmail     string    `json:"user_email"`
+	UserLogin     string    `json:"user_login"`
 	LastSync      time.Time `json:"last_sync"`
 	RecordsCount  int       `json:"records_count"`
 	MasterKeyHash string    `json:"master_key_hash"`
-}
-
-// Storage интерфейс для локального хранилища
-type Storage interface {
-	// Методы для локального хранения данных
-	SaveRecord(record *record.Record) error
-	GetRecord(id string) (*record.Record, error)
-	ListRecords() ([]*record.Record, error)
-	DeleteRecord(id string) error
-	UpdateRecord(record *record.Record) error
-	CountRecords() (int, error)
-	Close() error
-}
-
-type HTTPClient interface {
-	// Методы для HTTP взаимодействия с сервером
-	Login(ctx context.Context, login, password string) (string, error)
-	Register(ctx context.Context, login, password string) error
-	//ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error
-	CreateRecord(ctx context.Context, record *record.Record) error
-	GetRecords(ctx context.Context) ([]*record.Record, error)
-	SyncRecords(ctx context.Context, records []*record.Record) error
 }
 
 func New(cfg *config.Config, log *slog.Logger) (*App, error) {
@@ -87,10 +66,13 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}
 
 	// Инициализируем локальное хранилище (используем SQLite)
-	storage, err := NewSQLiteStorage(cfg.DataPath)
+	var storage Storage
+	sqliteStorage, err := NewSQLiteStorage(cfg.DataPath)
 	if err != nil {
 		log.Warn("Не удалось инициализировать SQLite, используем память", "error", err)
 		storage = NewMemoryStorage()
+	} else {
+		storage = sqliteStorage
 	}
 
 	app := &App{
@@ -104,7 +86,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}
 
 	// Инициализируем сервис синхронизации
-	app.sync = NewSyncService(app)
+	app.syncService = NewSyncService(app)
 
 	return app, nil
 }
@@ -211,16 +193,12 @@ func (a *App) CheckConnection() error {
 
 // InitStorage инициализирует хранилище
 func (a *App) InitStorage() error {
-	// Для SQLiteStorage создание таблиц происходит автоматически
-	// Для MemoryStorage ничего делать не нужно
-	if _, ok := a.storage.(*SQLiteStorage); ok {
-		// Проверяем, что таблицы созданы
-		count, err := a.storage.CountRecords()
-		if err != nil {
-			return fmt.Errorf("ошибка инициализации хранилища: %w", err)
-		}
-		a.state.RecordsCount = count
+	// Проверяем, что таблицы созданы
+	count, err := a.storage.CountRecords()
+	if err != nil {
+		return fmt.Errorf("ошибка инициализации хранилища: %w", err)
 	}
+	a.state.RecordsCount = count
 
 	return nil
 }
@@ -257,8 +235,8 @@ func (a *App) startSync(ctx context.Context) {
 			a.log.Info("Синхронизация остановлена")
 			return
 		case <-ticker.C:
-			if err := a.sync.Sync(ctx); err != nil {
-				a.log.Error("Ошибка синхронизации", err)
+			if _, err := a.syncService.Sync(ctx); err != nil {
+				a.log.Error("Ошибка синхронизации", "error", err)
 			}
 		}
 	}
@@ -287,34 +265,82 @@ func (a *App) Shutdown() {
 	a.log.Info("Клиент завершил работу")
 }
 
-// Вспомогательные методы
+// IsAuthenticated проверяет, аутентифицирован ли пользователь
 func (a *App) IsAuthenticated() bool {
-	// Проверяем наличие токена
-	_, err := os.ReadFile(a.config.TokenPath)
-	return err == nil
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if !a.authenticated {
+		// Проверяем наличие токена
+		token, err := a.GetToken()
+		if err == nil && token != "" {
+			a.mu.RUnlock()
+			a.mu.Lock()
+			a.authenticated = true
+			a.mu.Unlock()
+			a.mu.RLock()
+		}
+	}
+
+	return a.authenticated
 }
 
+// GetToken возвращает сохраненный токен
 func (a *App) GetToken() (string, error) {
 	tokenBytes, err := os.ReadFile(a.config.TokenPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("токен не найден. Выполните вход: gophkeeper auth login")
+		}
 		return "", fmt.Errorf("ошибка чтения токена: %w", err)
 	}
 	return string(tokenBytes), nil
 }
 
+// SaveToken сохраняет токен аутентификации
+func (a *App) SaveToken(token string) error {
+	if err := os.WriteFile(a.config.TokenPath, []byte(token), 0600); err != nil {
+		return fmt.Errorf("ошибка сохранения токена: %w", err)
+	}
+
+	// Устанавливаем токен для HTTP клиента
+	a.httpClient.SetToken(token)
+
+	return nil
+}
+
+// ClearToken удаляет токен
+func (a *App) ClearToken() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.authenticated = false
+	a.state.UserLogin = ""
+
+	if err := os.Remove(a.config.TokenPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("ошибка удаления токена: %w", err)
+	}
+
+	if err := a.saveAppState(); err != nil {
+		return fmt.Errorf("ошибка сохранения состояния: %w", err)
+	}
+
+	return nil
+}
+
 // Register регистрирует нового пользователя
 func (a *App) Register(ctx context.Context, req user.BaseRequest) error {
-	if err := a.httpClient.Register(ctx, req); err != nil {
+	if err := a.httpClient.Register(ctx, req.Login, req.Password); err != nil {
 		return err
 	}
 
-	a.log.Info("Пользователь успешно зарегистрирован", "email", req.Email)
+	a.log.Info("Пользователь успешно зарегистрирован", "login", req.Login)
 	return nil
 }
 
 // Login выполняет вход пользователя
 func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
-	token, err := a.httpClient.Login(ctx, req)
+	token, err := a.httpClient.Login(ctx, req.Login, req.Password)
 	if err != nil {
 		return "", err
 	}
@@ -326,7 +352,7 @@ func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 
 	a.mu.Lock()
 	a.authenticated = true
-	a.state.UserEmail = req.Email
+	a.state.UserLogin = req.Login
 	a.mu.Unlock()
 
 	// Сохраняем состояние
@@ -334,7 +360,7 @@ func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 		a.log.Warn("Не удалось сохранить состояние", "error", err)
 	}
 
-	a.log.Info("Вход выполнен успешно", "email", req.Email)
+	a.log.Info("Вход выполнен успешно", "login", req.Login)
 	return token, nil
 }
 
@@ -370,65 +396,6 @@ func (a *App) ChangePassword(ctx context.Context, req user.ChangePasswordRequest
 	return nil
 }
 
-// SaveToken сохраняет токен аутентификации
-func (a *App) SaveToken(token string) error {
-	if err := os.WriteFile(a.config.TokenPath, []byte(token), 0600); err != nil {
-		return fmt.Errorf("ошибка сохранения токена: %w", err)
-	}
-
-	// Устанавливаем токен для HTTP клиента
-	a.httpClient.SetToken(token)
-
-	return nil
-}
-
-// GetToken возвращает сохраненный токен
-func (a *App) GetToken() (string, error) {
-	tokenBytes, err := os.ReadFile(a.config.TokenPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("токен не найден. Выполните вход: gophkeeper auth login")
-		}
-		return "", fmt.Errorf("ошибка чтения токена: %w", err)
-	}
-	return string(tokenBytes), nil
-}
-
-// ClearToken удаляет токен
-func (a *App) ClearToken() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	a.authenticated = false
-	a.state.UserEmail = ""
-
-	if err := os.Remove(a.config.TokenPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("ошибка удаления токена: %w", err)
-	}
-
-	if err := a.saveAppState(); err != nil {
-		return fmt.Errorf("ошибка сохранения состояния: %w", err)
-	}
-
-	return nil
-}
-
-// IsAuthenticated проверяет, аутентифицирован ли пользователь
-func (a *App) IsAuthenticated() bool {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if !a.authenticated {
-		// Проверяем наличие токена
-		token, err := a.GetToken()
-		if err == nil && token != "" {
-			a.authenticated = true
-		}
-	}
-
-	return a.authenticated
-}
-
 func (a *App) reencryptLocalData(newMasterPassword string) error {
 	// Получаем все записи
 	records, err := a.storage.ListRecords(&RecordFilter{})
@@ -439,109 +406,239 @@ func (a *App) reencryptLocalData(newMasterPassword string) error {
 	// Перешифровываем каждую запись
 	for _, rec := range records {
 		// Расшифровываем старым ключом
-		decryptedData, err := a.crypto.DecryptData(rec.Data)
+		decryptedData, err := a.crypto.DecryptData([]byte(rec.EncryptedData))
 		if err != nil {
-			return fmt.Errorf("ошибка расшифровки данных записи %s: %w", rec.ID, err)
+			return fmt.Errorf("ошибка расшифровки данных записи %d: %w", rec.ID, err)
 		}
 
 		// Шифруем новым ключом
 		encryptedData, err := a.crypto.EncryptDataWithPassword(decryptedData, newMasterPassword)
 		if err != nil {
-			return fmt.Errorf("ошибка шифровки данных записи %s: %w", rec.ID, err)
+			return fmt.Errorf("ошибка шифровки данных записи %d: %w", rec.ID, err)
 		}
 
 		// Обновляем запись
-		rec.Data = encryptedData
+		rec.EncryptedData = string(encryptedData)
 		if err := a.storage.UpdateRecord(rec); err != nil {
-			return fmt.Errorf("ошибка обновления записи %s: %w", rec.ID, err)
+			return fmt.Errorf("ошибка обновления записи %d: %w", rec.ID, err)
 		}
 	}
 
 	return nil
 }
 
-// CreateRecord создает новую запись
-func (a *App) CreateRecord(ctx context.Context, rec *record.Record) error {
+// ==================== Record Operations ====================
+
+// CreateLoginRecord создает запись логина
+func (a *App) CreateLoginRecord(ctx context.Context, req CreateLoginRequest) (int, error) {
 	// Проверяем аутентификацию
 	if !a.IsAuthenticated() {
-		return fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
+		return 0, fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
 	}
 
-	// Проверяем мастер-ключ
-	if !a.masterKeyReady {
-		return fmt.Errorf("мастер-ключ не разблокирован")
-	}
-
-	// Генерируем ID если не задан
-	if rec.ID == "" {
-		rec.ID = generateID()
-	}
-
-	// Устанавливаем временные метки
-	now := time.Now()
-	rec.CreatedAt = now
-	rec.UpdatedAt = now
-	rec.Version = 1
-
-	// Шифруем данные
-	encryptedData, err := a.encryptor.EncryptRecord(rec.EncryptedData)
+	// Создаем запись на сервере
+	serverID, err := a.httpClient.CreateLoginRecord(ctx, req)
 	if err != nil {
-		return fmt.Errorf("ошибка шифрования данных: %w", err)
+		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
+		// Сохраняем локально без синхронизации
+		return a.saveLocalRecord(record.RecTypeLogin, req)
 	}
 
-	// Создаем локальную запись
-	localRec := &Record{
-		ID:        rec.ID,
-		Type:      rec.Type,
-		Metadata:  rec.Metadata,
-		Data:      encryptedData,
-		CreatedAt: rec.CreatedAt,
-		UpdatedAt: rec.UpdatedAt,
-		Version:   rec.Version,
-		Synced:    false,
-		Deleted:   false,
+	// Сохраняем локально с привязкой к серверу
+	localRec := &LocalRecord{
+		ServerID:     serverID,
+		Type:         record.RecTypeLogin,
+		Version:      1,
+		LastModified: time.Now(),
+		CreatedAt:    time.Now(),
+		Synced:       true,
+		DeviceID:     req.DeviceID,
 	}
 
-	// Сохраняем локально
+	// Сериализуем данные в Meta
+	meta := map[string]interface{}{
+		"title":    req.Title,
+		"resource": req.Resource,
+		"category": req.Category,
+		"tags":     req.Tags,
+	}
+	metaJSON, _ := json.Marshal(meta)
+	localRec.Meta = metaJSON
+
 	if err := a.storage.SaveRecord(localRec); err != nil {
-		return fmt.Errorf("ошибка сохранения записи: %w", err)
-	}
-
-	// Пытаемся синхронизировать с сервером
-	if a.IsAuthenticated() {
-		createReq := record.CreateRequest{
-			Type:     rec.Type,
-			Metadata: rec.Metadata,
-			Data:     rec.Data, // Отправляем незашифрованные данные (сервер сам шифрует)
-		}
-
-		serverID, err := a.httpClient.CreateRecord(ctx, createReq)
-		if err != nil {
-			a.log.Warn("Не удалось синхронизировать запись с сервером", "error", err, "record_id", rec.ID)
-			// Продолжаем работу в офлайн-режиме
-			return nil
-		}
-
-		// Обновляем ID если сервер вернул свой
-		if serverID != rec.ID {
-			localRec.ID = serverID
-			localRec.Synced = true
-			if err := a.storage.UpdateRecord(localRec); err != nil {
-				return fmt.Errorf("ошибка обновления ID записи: %w", err)
-			}
-		}
+		a.log.Warn("Не удалось сохранить запись локально", "error", err)
 	}
 
 	a.state.RecordsCount++
-	if err := a.saveAppState(); err != nil {
-		a.log.Warn("Не удалось сохранить состояние", "error", err)
+	a.saveAppState()
+
+	return serverID, nil
+}
+
+// CreateTextRecord создает текстовую запись
+func (a *App) CreateTextRecord(ctx context.Context, req CreateTextRequest) (int, error) {
+	if !a.IsAuthenticated() {
+		return 0, fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
 	}
 
-	return nil
+	serverID, err := a.httpClient.CreateTextRecord(ctx, req)
+	if err != nil {
+		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
+		return a.saveLocalRecord(record.RecTypeText, req)
+	}
+
+	localRec := &LocalRecord{
+		ServerID:     serverID,
+		Type:         record.RecTypeText,
+		Version:      1,
+		LastModified: time.Now(),
+		CreatedAt:    time.Now(),
+		Synced:       true,
+		DeviceID:     req.DeviceID,
+	}
+
+	meta := map[string]interface{}{
+		"title":    req.Title,
+		"category": req.Category,
+		"tags":     req.Tags,
+		"format":   req.Format,
+	}
+	metaJSON, _ := json.Marshal(meta)
+	localRec.Meta = metaJSON
+
+	if err := a.storage.SaveRecord(localRec); err != nil {
+		a.log.Warn("Не удалось сохранить запись локально", "error", err)
+	}
+
+	a.state.RecordsCount++
+	a.saveAppState()
+
+	return serverID, nil
+}
+
+// CreateCardRecord создает запись карты
+func (a *App) CreateCardRecord(ctx context.Context, req CreateCardRequest) (int, error) {
+	if !a.IsAuthenticated() {
+		return 0, fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
+	}
+
+	serverID, err := a.httpClient.CreateCardRecord(ctx, req)
+	if err != nil {
+		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
+		return a.saveLocalRecord(record.RecTypeCard, req)
+	}
+
+	localRec := &LocalRecord{
+		ServerID:     serverID,
+		Type:         record.RecTypeCard,
+		Version:      1,
+		LastModified: time.Now(),
+		CreatedAt:    time.Now(),
+		Synced:       true,
+		DeviceID:     req.DeviceID,
+	}
+
+	meta := map[string]interface{}{
+		"title":     req.Title,
+		"bank_name": req.BankName,
+		"category":  req.Category,
+		"tags":      req.Tags,
+	}
+	metaJSON, _ := json.Marshal(meta)
+	localRec.Meta = metaJSON
+
+	if err := a.storage.SaveRecord(localRec); err != nil {
+		a.log.Warn("Не удалось сохранить запись локально", "error", err)
+	}
+
+	a.state.RecordsCount++
+	a.saveAppState()
+
+	return serverID, nil
+}
+
+// CreateBinaryRecord создает бинарную запись
+func (a *App) CreateBinaryRecord(ctx context.Context, req CreateBinaryRequest) (int, error) {
+	if !a.IsAuthenticated() {
+		return 0, fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
+	}
+
+	serverID, err := a.httpClient.CreateBinaryRecord(ctx, req)
+	if err != nil {
+		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
+		return a.saveLocalRecord(record.RecTypeBinary, req)
+	}
+
+	localRec := &LocalRecord{
+		ServerID:     serverID,
+		Type:         record.RecTypeBinary,
+		Version:      1,
+		LastModified: time.Now(),
+		CreatedAt:    time.Now(),
+		Synced:       true,
+		DeviceID:     req.DeviceID,
+	}
+
+	meta := map[string]interface{}{
+		"title":       req.Title,
+		"filename":    req.Filename,
+		"category":    req.Category,
+		"tags":        req.Tags,
+		"description": req.Description,
+	}
+	metaJSON, _ := json.Marshal(meta)
+	localRec.Meta = metaJSON
+
+	if err := a.storage.SaveRecord(localRec); err != nil {
+		a.log.Warn("Не удалось сохранить запись локально", "error", err)
+	}
+
+	a.state.RecordsCount++
+	a.saveAppState()
+
+	return serverID, nil
+}
+
+// saveLocalRecord сохраняет запись локально без синхронизации
+func (a *App) saveLocalRecord(recType record.RecType, data interface{}) (int, error) {
+	dataJSON, err := json.Marshal(data)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка сериализации данных: %w", err)
+	}
+
+	// Шифруем данные если мастер-ключ готов
+	var encryptedData string
+	if a.masterKeyReady {
+		encrypted, err := a.encryptor.EncryptRecord(dataJSON)
+		if err != nil {
+			return 0, fmt.Errorf("ошибка шифрования данных: %w", err)
+		}
+		encryptedData = string(encrypted)
+	} else {
+		encryptedData = string(dataJSON)
+	}
+
+	localRec := &LocalRecord{
+		Type:          recType,
+		EncryptedData: encryptedData,
+		Version:       1,
+		LastModified:  time.Now(),
+		CreatedAt:     time.Now(),
+		Synced:        false,
+	}
+
+	if err := a.storage.SaveRecord(localRec); err != nil {
+		return 0, fmt.Errorf("ошибка сохранения записи: %w", err)
+	}
+
+	a.state.RecordsCount++
+	a.saveAppState()
+
+	return localRec.ID, nil
 }
 
 // GetRecord возвращает запись по ID
-func (a *App) GetRecord(ctx context.Context, id string, showPassword bool) (*Record, error) {
+func (a *App) GetRecord(ctx context.Context, id int) (*LocalRecord, error) {
 	// Пытаемся получить из локального хранилища
 	localRec, err := a.storage.GetRecord(id)
 	if err != nil {
@@ -552,61 +649,54 @@ func (a *App) GetRecord(ctx context.Context, id string, showPassword bool) (*Rec
 				return nil, fmt.Errorf("запись не найдена: %w", err)
 			}
 
-			// Сохраняем локально
-			if err := a.storage.SaveRecord(serverRec); err != nil {
+			// Конвертируем и сохраняем локально
+			localRec = FromServerRecord(serverRec)
+			if err := a.storage.SaveRecord(localRec); err != nil {
 				a.log.Warn("Не удалось сохранить запись локально", "error", err)
 			}
 
-			return serverRec, nil
+			return localRec, nil
 		}
 		return nil, fmt.Errorf("запись не найдена: %w", err)
-	}
-
-	// Расшифровываем данные если нужно
-	if showPassword && a.crypto.IsInitialized() && !a.crypto.IsLocked() {
-		decryptedData, err := a.crypto.DecryptData(localRec.EncryptedData)
-		if err != nil {
-			return nil, fmt.Errorf("ошибка расшифровки данных: %w", err)
-		}
-		localRec.EncryptedData = decryptedData
 	}
 
 	return localRec, nil
 }
 
 // ListRecords возвращает список записей
-func (a *App) ListRecords(ctx context.Context, filter *RecordFilter) ([]*Record, error) {
+func (a *App) ListRecords(ctx context.Context, filter *RecordFilter) ([]*LocalRecord, error) {
 	// Сначала получаем локальные записи
 	records, err := a.storage.ListRecords(filter)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения локальных записей: %w", err)
 	}
 
-	// Если аутентифицированы, синхронизируем
+	// Если аутентифицированы, синхронизируем в фоне
 	if a.IsAuthenticated() {
-		// Фоновая синхронизация
 		go func() {
-			if err := a.sync.Sync(ctx); err != nil {
+			if _, err := a.syncService.Sync(ctx); err != nil {
 				a.log.Warn("Ошибка синхронизации", "error", err)
 			}
 		}()
 
 		// Если локально нет записей, пробуем получить с сервера
 		if len(records) == 0 {
-			serverRecords, err := a.httpClient.ListRecords(ctx, record.ListRequest{
-				Type:        filter.Type,
-				ShowDeleted: filter.ShowDeleted,
-				Limit:       filter.Limit,
-				Offset:      filter.Offset,
-			})
-			if err == nil && len(serverRecords) > 0 {
+			serverRecords, err := a.httpClient.ListRecords(ctx)
+			if err == nil && len(serverRecords.Records) > 0 {
 				// Сохраняем локально
-				for _, rec := range serverRecords {
-					if err := a.storage.SaveRecord(rec); err != nil {
-						a.log.Warn("Не удалось сохранить запись локально", "error", err, "record_id", rec.ID)
+				for _, item := range serverRecords.Records {
+					// Получаем полную запись с сервера
+					serverRec, err := a.httpClient.GetRecord(ctx, item.ID)
+					if err != nil {
+						a.log.Warn("Не удалось получить запись с сервера", "error", err, "record_id", item.ID)
+						continue
 					}
+					localRec := FromServerRecord(serverRec)
+					if err := a.storage.SaveRecord(localRec); err != nil {
+						a.log.Warn("Не удалось сохранить запись локально", "error", err, "record_id", item.ID)
+					}
+					records = append(records, localRec)
 				}
-				return serverRecords, nil
 			}
 		}
 	}
@@ -615,7 +705,7 @@ func (a *App) ListRecords(ctx context.Context, filter *RecordFilter) ([]*Record,
 }
 
 // UpdateRecord обновляет запись
-func (a *App) UpdateRecord(ctx context.Context, id string, req record.UpdateRequest) error {
+func (a *App) UpdateRecord(ctx context.Context, id int, req GenericRecordRequest) error {
 	// Получаем существующую запись
 	existingRec, err := a.storage.GetRecord(id)
 	if err != nil {
@@ -623,20 +713,10 @@ func (a *App) UpdateRecord(ctx context.Context, id string, req record.UpdateRequ
 	}
 
 	// Обновляем поля
-	if req.Metadata != nil {
-		existingRec.Metadata = *req.Metadata
-	}
-
-	if req.Data != nil {
-		// Шифруем новые данные
-		encryptedData, err := a.crypto.EncryptData(req.Data)
-		if err != nil {
-			return fmt.Errorf("ошибка шифрования данных: %w", err)
-		}
-		existingRec.Data = encryptedData
-	}
-
-	existingRec.UpdatedAt = time.Now()
+	existingRec.Type = req.Type
+	existingRec.Meta = req.Meta
+	existingRec.EncryptedData = req.Data
+	existingRec.LastModified = time.Now()
 	existingRec.Version++
 	existingRec.Synced = false
 
@@ -646,8 +726,8 @@ func (a *App) UpdateRecord(ctx context.Context, id string, req record.UpdateRequ
 	}
 
 	// Синхронизируем с сервером
-	if a.IsAuthenticated() {
-		if err := a.httpClient.UpdateRecord(ctx, id, req); err != nil {
+	if a.IsAuthenticated() && existingRec.ServerID > 0 {
+		if err := a.httpClient.UpdateRecord(ctx, existingRec.ServerID, req); err != nil {
 			a.log.Warn("Не удалось синхронизировать обновление с сервером", "error", err, "record_id", id)
 		} else {
 			existingRec.Synced = true
@@ -661,8 +741,8 @@ func (a *App) UpdateRecord(ctx context.Context, id string, req record.UpdateRequ
 }
 
 // DeleteRecord удаляет запись
-func (a *App) DeleteRecord(ctx context.Context, id string, permanent bool) error {
-	// Помечаем как удаленную локально
+func (a *App) DeleteRecord(ctx context.Context, id int, permanent bool) error {
+	// Получаем запись
 	rec, err := a.storage.GetRecord(id)
 	if err != nil {
 		return fmt.Errorf("запись не найдена: %w", err)
@@ -670,40 +750,21 @@ func (a *App) DeleteRecord(ctx context.Context, id string, permanent bool) error
 
 	if permanent {
 		// Полное удаление
-		if err := a.storage.DeleteRecord(id); err != nil {
+		if err := a.storage.HardDeleteRecord(id); err != nil {
 			return fmt.Errorf("ошибка удаления записи: %w", err)
 		}
 		a.state.RecordsCount--
 	} else {
 		// Мягкое удаление
-		rec.Deleted = true
-		rec.UpdatedAt = time.Now()
-		rec.Synced = false
-
-		if err := a.storage.UpdateRecord(rec); err != nil {
-			return fmt.Errorf("ошибка обновления записи: %w", err)
+		if err := a.storage.DeleteRecord(id); err != nil {
+			return fmt.Errorf("ошибка удаления записи: %w", err)
 		}
 	}
 
 	// Синхронизируем с сервером
-	if a.IsAuthenticated() {
-		if permanent {
-			if err := a.httpClient.DeleteRecord(ctx, id); err != nil {
-				a.log.Warn("Не удалось синхронизировать удаление с сервером", "error", err, "record_id", id)
-			}
-		} else {
-			// Для мягкого удаления отправляем обновление
-			req := record.UpdateRequest{
-				Deleted: &rec.Deleted,
-			}
-			if err := a.httpClient.UpdateRecord(ctx, id, req); err != nil {
-				a.log.Warn("Не удалось синхронизировать удаление с сервером", "error", err, "record_id", id)
-			} else {
-				rec.Synced = true
-				if err := a.storage.UpdateRecord(rec); err != nil {
-					a.log.Warn("Не удалось обновить статус синхронизации", "error", err)
-				}
-			}
+	if a.IsAuthenticated() && rec.ServerID > 0 {
+		if err := a.httpClient.DeleteRecord(ctx, rec.ServerID); err != nil {
+			a.log.Warn("Не удалось синхронизировать удаление с сервером", "error", err, "record_id", id)
 		}
 	}
 
@@ -716,10 +777,33 @@ func (a *App) DeleteRecord(ctx context.Context, id string, permanent bool) error
 
 // Sync запускает синхронизацию
 func (a *App) Sync(ctx context.Context) error {
-	return a.sync.Sync(ctx)
+	_, err := a.syncService.Sync(ctx)
+	return err
 }
 
-// Вспомогательные функции
-func generateID() string {
-	return fmt.Sprintf("%x", time.Now().UnixNano())
+// ==================== Sync API Wrappers ====================
+
+// GetSyncStatus получает статус синхронизации
+func (a *App) GetSyncStatus(ctx context.Context) (*sync.SyncStatus, error) {
+	return a.httpClient.GetSyncStatus(ctx)
+}
+
+// GetSyncConflicts получает конфликты синхронизации
+func (a *App) GetSyncConflicts(ctx context.Context) ([]sync.Conflict, error) {
+	return a.httpClient.GetSyncConflicts(ctx)
+}
+
+// ResolveConflict разрешает конфликт
+func (a *App) ResolveConflict(ctx context.Context, conflictID int, req sync.ResolveConflictRequest) error {
+	return a.httpClient.ResolveConflict(ctx, conflictID, req)
+}
+
+// GetDevices получает список устройств
+func (a *App) GetDevices(ctx context.Context) ([]sync.DeviceInfo, error) {
+	return a.httpClient.GetDevices(ctx)
+}
+
+// RemoveDevice удаляет устройство
+func (a *App) RemoveDevice(ctx context.Context, deviceID int) error {
+	return a.httpClient.RemoveDevice(ctx, deviceID)
 }
