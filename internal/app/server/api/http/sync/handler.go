@@ -3,9 +3,10 @@ package sync
 import (
 	"context"
 
+	"gophkeeper/internal/domain/sync"
+
 	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/exp/slog"
-	"gophkeeper/internal/domain/sync"
 )
 
 type Handler struct {
@@ -92,10 +93,7 @@ func (h *Handler) getConflicts(ctx context.Context, _ *getConflictsInput) (*getC
 	}
 
 	return &getConflictsOutput{
-		Body: sync.GetConflictsResponse{
-			Status: "Ok",
-			Data:   response,
-		},
+		Body: *response,
 	}, nil
 }
 
@@ -126,10 +124,16 @@ func (h *Handler) getDevices(ctx context.Context, _ *getDevicesInput) (*getDevic
 		}, nil
 	}
 
+	// Конвертируем []*DeviceInfo в []DeviceInfo
+	devicesSlice := make([]sync.DeviceInfo, len(response))
+	for i, d := range response {
+		devicesSlice[i] = *d
+	}
+
 	return &getDevicesOutput{
 		Body: sync.GetDevicesResponse{
 			Status: "Ok",
-			Data:   response,
+			Data:   devicesSlice,
 		},
 	}, nil
 }

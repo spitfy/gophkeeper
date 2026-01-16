@@ -102,10 +102,16 @@ func (s *Service) GetChanges(ctx context.Context, req GetChangesRequest) (*GetCh
 		s.log.Warn("Failed to get sync stats", "error", err)
 	}
 
+	// Конвертируем []*RecordSync в []RecordSync
+	recordsSlice := make([]RecordSync, len(records))
+	for i, r := range records {
+		recordsSlice[i] = *r
+	}
+
 	// Формируем ответ
 	response := &GetChangesResponse{
 		Status:      "Ok",
-		Records:     records,
+		Records:     recordsSlice,
 		HasMore:     hasMore,
 		ServerTime:  time.Now(),
 		SyncVersion: status.SyncVersion,
@@ -202,9 +208,15 @@ func (s *Service) GetConflicts(ctx context.Context) (*GetConflictsResponse, erro
 		return nil, fmt.Errorf("failed to get conflicts: %w", err)
 	}
 
+	// Конвертируем []*Conflict в []Conflict
+	conflictsSlice := make([]Conflict, len(conflicts))
+	for i, c := range conflicts {
+		conflictsSlice[i] = *c
+	}
+
 	return &GetConflictsResponse{
 		Status: "Ok",
-		Data:   conflicts,
+		Data:   conflictsSlice,
 	}, nil
 }
 
@@ -241,7 +253,7 @@ func (s *Service) ResolveConflict(ctx context.Context, conflictID int, req Resol
 }
 
 // GetDevices возвращает список устройств пользователя
-func (s *Service) GetDevices(ctx context.Context) (*GetDevicesResponse, error) {
+func (s *Service) GetDevices(ctx context.Context) ([]*DeviceInfo, error) {
 	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user not authenticated")
@@ -252,10 +264,7 @@ func (s *Service) GetDevices(ctx context.Context) (*GetDevicesResponse, error) {
 		return nil, fmt.Errorf("failed to get devices: %w", err)
 	}
 
-	return &GetDevicesResponse{
-		Status: "Ok",
-		Data:   devices,
-	}, nil
+	return devices, nil
 }
 
 // RemoveDevice удаляет устройство из списка синхронизации

@@ -18,6 +18,34 @@ type Record struct {
 	DeviceID      string          `json:"device_id,omitempty"`
 }
 
+type BaseRecord struct {
+	ID            int             `json:"id"`
+	UserID        int             `json:"user_id"`
+	Type          RecType         `json:"type"`
+	EncryptedData string          `json:"encrypted_data"`
+	Meta          json.RawMessage `json:"meta"`
+	Version       int             `json:"version"`
+	LastModified  time.Time       `json:"last_modified"`
+	DeletedAt     *time.Time      `json:"deleted_at,omitempty"`
+	Checksum      string          `json:"checksum,omitempty"`
+	DeviceID      string          `json:"device_id,omitempty"`
+}
+
+// RecordData - интерфейс для данных записи (до шифрования)
+type RecordData interface {
+	GetType() RecType
+	Validate() error
+	ToJSON() ([]byte, error)
+	FromJSON(data []byte) error
+}
+
+// MetaData - интерфейс для метаданных
+type MetaData interface {
+	ToJSON() ([]byte, error)
+	FromJSON(data []byte) error
+	Validate() error
+}
+
 type RecordVersion struct {
 	ID            int             `json:"id"`
 	RecordID      int             `json:"record_id"`

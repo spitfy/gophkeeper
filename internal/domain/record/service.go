@@ -17,8 +17,9 @@ var ()
 
 // Service defines the business logic for record operations
 type Service struct {
-	repo Repository
-	log  *slog.Logger
+	repo    Repository
+	factory *RecordFactory
+	log     *slog.Logger
 }
 
 type Servicer interface {
@@ -33,6 +34,24 @@ type Servicer interface {
 	GetModifiedSince(ctx context.Context, userID int, since time.Time) ([]Record, error)
 	BatchCreate(ctx context.Context, userID int, records []CreateRequest) (BatchCreateResponse, error)
 	BatchUpdate(ctx context.Context, userID int, updates []UpdateRequest) (BatchUpdateResponse, error)
+
+	CreateWithModels(
+		ctx context.Context,
+		userID int,
+		typ RecType,
+		data RecordData,
+		meta MetaData,
+		deviceID string,
+	) (int, error)
+	UpdateWithModels(
+		ctx context.Context,
+		recordID int,
+		userID int,
+		data RecordData,
+		meta MetaData,
+		deviceID string,
+	) error
+	GetRecordWithModels(ctx context.Context, recordID, userID int) (RecordData, MetaData, error)
 }
 
 type CreateRequest struct {
@@ -84,7 +103,7 @@ type TypeStats struct {
 }
 
 // NewService creates a new record service
-func NewService(repo Repository, log *slog.Logger) Servicer {
+func NewService(repo Repository, factory *RecordFactory, log *slog.Logger) Servicer {
 	return &Service{
 		repo: repo,
 		log:  log.With("component", "record_service"),
@@ -451,4 +470,132 @@ func (s *Service) GetVersions(ctx context.Context, userID, recordID int) ([]Reco
 	}
 
 	return s.repo.GetVersions(ctx, recordID)
+}
+
+func (s *Service) CreateWithModels(
+	ctx context.Context,
+	userID int,
+	typ RecType,
+	data RecordData,
+	meta MetaData,
+	deviceID string,
+) (int, error) {
+	// Валидация
+	if data.GetType() != typ {
+		return -1, fmt.Errorf("data type mismatch: expected %s, got %s", typ, data.GetType())
+	}
+
+	if err := data.Validate(); err != nil {
+		return -1, fmt.Errorf("data validation failed: %w", err)
+	}
+
+	if err := meta.Validate(); err != nil {
+		return -1, fmt.Errorf("meta validation failed: %w", err)
+	}
+
+	// Подготовка записи
+	record, err := s.factory.PrepareRecord(typ, data, meta)
+	if err != nil {
+		return -1, fmt.Errorf("failed to prepare record: %w", err)
+	}
+
+	record.UserID = userID
+	record.DeviceID = deviceID
+	record.LastModified = time.Now()
+
+	// Генерация checksum
+	record.Checksum = s.generateChecksum(record.EncryptedData, typ, record.Meta)
+
+	// Сохранение в БД
+	recordID, err := s.repo.Create(ctx, record)
+	if err != nil {
+		s.log.Error("failed to create record", "user_id", userID, "type", typ, "error", err)
+		return -1, fmt.Errorf("create record: %w", err)
+	}
+
+	s.log.Info("record created successfully",
+		"record_id", recordID,
+		"user_id", userID,
+		"type", typ,
+		"device_id", deviceID,
+	)
+
+	return recordID, nil
+}
+
+// GetRecordWithModels получает запись с парсингом в модели
+func (s *Service) GetRecordWithModels(ctx context.Context, recordID, userID int) (RecordData, MetaData, error) {
+	record, err := s.repo.Get(ctx, recordID, userID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get record: %w", err)
+	}
+
+	if record.DeletedAt != nil {
+		return nil, nil, ErrNotFound
+	}
+
+	// Парсинг данных
+	data, err := s.factory.ParseData(record.Type, []byte(record.EncryptedData))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse record data: %w", err)
+	}
+
+	// Парсинг метаданных
+	meta, err := s.factory.ParseMeta(record.Type, record.Meta)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse record meta: %w", err)
+	}
+
+	return data, meta, nil
+}
+
+func (s *Service) UpdateWithModels(
+	ctx context.Context,
+	recordID int,
+	userID int,
+	data RecordData,
+	meta MetaData,
+	deviceID string,
+) error {
+	// Получаем текущую запись
+	record, err := s.repo.Get(ctx, recordID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get record: %w", err)
+	}
+
+	if record.DeletedAt != nil {
+		return ErrNotFound
+	}
+
+	// Подготовка обновленной записи
+	updatedRecord, err := s.factory.PrepareRecord(record.Type, data, meta)
+	if err != nil {
+		return fmt.Errorf("failed to prepare updated record: %w", err)
+	}
+
+	updatedRecord.ID = recordID
+	updatedRecord.UserID = userID
+	updatedRecord.Version = record.Version + 1
+	updatedRecord.LastModified = time.Now()
+	updatedRecord.DeviceID = deviceID
+	updatedRecord.Checksum = s.generateChecksum(updatedRecord.EncryptedData, record.Type, updatedRecord.Meta)
+
+	// Сохраняем в БД
+	if err := s.repo.Update(ctx, updatedRecord); err != nil {
+		s.log.Error("failed to update record",
+			"record_id", recordID,
+			"user_id", userID,
+			"error", err,
+		)
+		return fmt.Errorf("update record: %w", err)
+	}
+
+	s.log.Info("record updated successfully",
+		"record_id", recordID,
+		"user_id", userID,
+		"version", updatedRecord.Version,
+		"device_id", deviceID,
+	)
+
+	return nil
 }

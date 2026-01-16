@@ -14,10 +14,6 @@
 package api
 
 import (
-	"github.com/danielgtaylor/huma/v2"
-	"github.com/danielgtaylor/huma/v2/adapters/humachi"
-	"github.com/go-chi/chi/v5"
-	"golang.org/x/exp/slog"
 	"gophkeeper/internal/app/server/api/http/middleware"
 	"gophkeeper/internal/app/server/api/http/middleware/auth"
 	recordAPI "gophkeeper/internal/app/server/api/http/record"
@@ -28,6 +24,11 @@ import (
 	"gophkeeper/internal/domain/sync"
 	"gophkeeper/internal/domain/user"
 	"gophkeeper/internal/infrastructure/storage/postgres"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
+	"golang.org/x/exp/slog"
 )
 
 type Handlers struct {
@@ -66,7 +67,8 @@ func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
 	userHandler := userAPI.NewHandler(userService, sessionService, log, middlewares.GetAllAndClear())
 
 	recordRepo := postgres.NewRecordRepository(storage, log)
-	recordService := record.NewService(recordRepo, log)
+	recordFactory := record.NewRecordFactory()
+	recordService := record.NewService(recordRepo, recordFactory, log)
 	middlewares.Add(authMW.Middleware())
 	recordHandler := recordAPI.NewHandler(recordService, log, middlewares.GetAllAndClear())
 
