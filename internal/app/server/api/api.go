@@ -16,6 +16,7 @@ package api
 import (
 	"gophkeeper/internal/app/server/api/http/middleware"
 	"gophkeeper/internal/app/server/api/http/middleware/auth"
+	"gophkeeper/internal/app/server/api/http/middleware/logger"
 	recordAPI "gophkeeper/internal/app/server/api/http/record"
 	syncAPI "gophkeeper/internal/app/server/api/http/sync"
 	userAPI "gophkeeper/internal/app/server/api/http/user"
@@ -60,16 +61,19 @@ func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
 	sessionRepo := postgres.NewSessionRepository(storage, log)
 	sessionService := session.NewService(sessionRepo, log)
 	authMW := auth.New(sessionService, log)
+	loggerMW := logger.New(log)
 	middlewares := middleware.NewContainer()
 
 	userRepo := postgres.NewUserRepository(storage, log)
 	userService := user.NewService(userRepo, log)
+	middlewares.Add(loggerMW.Middleware())
 	userHandler := userAPI.NewHandler(userService, sessionService, log, middlewares.GetAllAndClear())
 
 	recordRepo := postgres.NewRecordRepository(storage, log)
 	recordFactory := record.NewRecordFactory()
 	recordService := record.NewService(recordRepo, recordFactory, log)
 	middlewares.Add(authMW.Middleware())
+	middlewares.Add(loggerMW.Middleware())
 	recordHandler := recordAPI.NewHandler(recordService, log, middlewares.GetAllAndClear())
 
 	syncRepo := postgres.NewSyncRepository(storage, log)

@@ -2,7 +2,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -104,10 +103,4 @@ func init() {
 	record.RecordCmd.AddCommand(record.ListCmd)
 
 	rootCmd.AddCommand(sync.SyncCmd)
-
-	// Добавляем контекст с приложением ко всем командам
-	cobra.OnInitialize(func() {
-		// Устанавливаем контекст для корневой команды
-		rootCmd.SetContext(context.WithValue(context.Background(), "app", app))
-	})
 }

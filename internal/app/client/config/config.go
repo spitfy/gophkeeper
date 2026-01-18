@@ -55,7 +55,7 @@ func MustLoad() *Config {
 	viper.SetDefault("MASTER_KEY_PATH", defaultMasterKeyPath)
 	viper.SetDefault("CONFIG_DIR", defaultConfigDir)
 	viper.SetDefault("SYNC_INTERVAL_SECONDS", 30)
-	viper.SetDefault("ENABLE_TLS", true)
+	viper.SetDefault("ENABLE_TLS", false)
 
 	// Получаем домашнюю директорию пользователя
 	homeDir, err := os.UserHomeDir()

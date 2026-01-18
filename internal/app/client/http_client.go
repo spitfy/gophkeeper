@@ -17,6 +17,12 @@ import (
 	"gophkeeper/internal/domain/user"
 )
 
+const (
+	maxRetries    = 3
+	retryDelay    = 1 * time.Second
+	maxRetryDelay = 10 * time.Second
+)
+
 type httpClient struct {
 	client    *http.Client
 	config    *config.Config
@@ -87,38 +93,92 @@ func (h *httpClient) HealthCheck(ctx context.Context) error {
 }
 
 func (h *httpClient) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
-	var reqBody io.Reader
-	if body != nil {
-		jsonData, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("ошибка маршалинга тела запроса: %w", err)
+	return h.doRequestWithRetry(ctx, method, path, body, maxRetries)
+}
+
+func (h *httpClient) doRequestWithRetry(ctx context.Context, method, path string, body interface{}, retries int) (*http.Response, error) {
+	var lastErr error
+	delay := retryDelay
+
+	for attempt := 0; attempt <= retries; attempt++ {
+		if attempt > 0 {
+			h.log.Debug("Повторная попытка запроса",
+				"attempt", attempt,
+				"max_retries", retries,
+				"delay", delay,
+			)
+
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+				// Экспоненциальная задержка
+				delay *= 2
+				if delay > maxRetryDelay {
+					delay = maxRetryDelay
+				}
+			}
 		}
-		reqBody = bytes.NewBuffer(jsonData)
+
+		var reqBody io.Reader
+		if body != nil {
+			jsonData, err := json.Marshal(body)
+			if err != nil {
+				return nil, fmt.Errorf("ошибка маршалинга тела запроса: %w", err)
+			}
+			reqBody = bytes.NewBuffer(jsonData)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, h.baseURL+path, reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка создания запроса: %w", err)
+		}
+
+		// Добавляем заголовки
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", h.userAgent)
+		if h.token != "" {
+			req.Header.Set("Authorization", "Bearer "+h.token)
+		}
+
+		h.log.Debug("Отправка запроса",
+			"method", method,
+			"url", req.URL.String(),
+			"attempt", attempt+1,
+		)
+
+		resp, err := h.client.Do(req)
+		if err != nil {
+			lastErr = err
+			h.log.Warn("Ошибка выполнения запроса",
+				"error", err,
+				"attempt", attempt+1,
+			)
+			continue
+		}
+
+		// Проверяем статус код - некоторые ошибки не требуют retry
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			// Клиентские ошибки (4xx) не требуют retry
+			return resp, nil
+		}
+
+		if resp.StatusCode >= 500 {
+			// Серверные ошибки (5xx) - пробуем retry
+			resp.Body.Close()
+			lastErr = fmt.Errorf("сервер вернул ошибку: %d", resp.StatusCode)
+			h.log.Warn("Серверная ошибка, повторяем запрос",
+				"status", resp.StatusCode,
+				"attempt", attempt+1,
+			)
+			continue
+		}
+
+		// Успешный ответ
+		return resp, nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, h.baseURL+path, reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
-	}
-
-	// Добавляем заголовки
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", h.userAgent)
-	if h.token != "" {
-		req.Header.Set("Authorization", "Bearer "+h.token)
-	}
-
-	h.log.Debug("Отправка запроса",
-		"method", method,
-		"url", req.URL.String(),
-	)
-
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка выполнения запроса: %w", err)
-	}
-
-	return resp, nil
+	return nil, fmt.Errorf("превышено количество попыток (%d): %w", retries, lastErr)
 }
 
 func (h *httpClient) parseResponse(resp *http.Response, result interface{}) error {
@@ -163,7 +223,7 @@ func (h *httpClient) Login(ctx context.Context, login, password string) (string,
 		Password: password,
 	}
 
-	resp, err := h.doRequest(ctx, "POST", "/api/v1/auth/login", req)
+	resp, err := h.doRequest(ctx, "POST", "/user/login", req)
 	if err != nil {
 		return "", err
 	}
@@ -193,7 +253,7 @@ func (h *httpClient) Register(ctx context.Context, login, password string) error
 		Password: password,
 	}
 
-	resp, err := h.doRequest(ctx, "POST", "/api/v1/auth/register", req)
+	resp, err := h.doRequest(ctx, "POST", "/user/register", req)
 	if err != nil {
 		return err
 	}
@@ -216,14 +276,15 @@ func (h *httpClient) Register(ctx context.Context, login, password string) error
 }
 
 // ChangePassword меняет пароль пользователя
-func (h *httpClient) ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error {
-	resp, err := h.doRequest(ctx, "POST", "/api/v1/auth/change-password", req)
-	if err != nil {
-		return err
-	}
-
-	return h.parseResponse(resp, nil)
-}
+// TODO: Реализовать на сервере эндпоинт /user/change-password
+// func (h *httpClient) ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error {
+// 	resp, err := h.doRequest(ctx, "POST", "/user/change-password", req)
+// 	if err != nil {
+// 		return err
+// 	}
+//
+// 	return h.parseResponse(resp, nil)
+// }
 
 // ==================== Records API ====================
 

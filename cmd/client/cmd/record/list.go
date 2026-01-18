@@ -7,6 +7,7 @@ import (
 	"gophkeeper/internal/app/client"
 	"gophkeeper/internal/domain/record"
 	"os"
+	"strconv"
 	"text/tabwriter"
 	"time"
 
@@ -21,7 +22,7 @@ var (
 	offset      int
 )
 
-var listCmd = &cobra.Command{
+var ListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Список записей",
 	Long: `Просмотр списка всех записей с возможностью фильтрации по типу.
@@ -33,13 +34,14 @@ var listCmd = &cobra.Command{
 			return fmt.Errorf("приложение не инициализировано")
 		}
 
-		// Получаем записи
-		records, err := app.ListRecords(cmd.Context(), record.ListRequest{
-			Type:        record.Type(listType),
+		filter := &client.RecordFilter{
+			Type:        record.RecType(listType),
 			ShowDeleted: showDeleted,
 			Limit:       limit,
 			Offset:      offset,
-		})
+		}
+
+		records, err := app.ListRecords(cmd.Context(), filter)
 		if err != nil {
 			return fmt.Errorf("ошибка получения списка записей: %w", err)
 		}
@@ -58,7 +60,7 @@ var listCmd = &cobra.Command{
 	},
 }
 
-func printRecordsSimple(records []*record.Record) error {
+func printRecordsSimple(records []*client.LocalRecord) error {
 	if len(records) == 0 {
 		fmt.Println("Записи не найдены")
 		return nil
@@ -68,16 +70,24 @@ func printRecordsSimple(records []*record.Record) error {
 
 	for i, rec := range records {
 		status := "✓"
-		if rec.Deleted {
+		if rec.DeletedAt != nil {
 			status = "✗"
 		}
 
-		fmt.Printf("%d. [%s] %s (%s)\n", i+1, status, rec.Metadata.Name, rec.Type)
-		if rec.Metadata.Description != "" {
-			fmt.Printf("   %s\n", rec.Metadata.Description)
+		var meta map[string]interface{}
+		title := "Без названия"
+		if len(rec.Meta) > 0 {
+			if err := json.Unmarshal(rec.Meta, &meta); err == nil {
+				if t, ok := meta["title"].(string); ok {
+					title = t
+				}
+			}
 		}
-		fmt.Printf("   ID: %s | Создано: %s\n",
+
+		fmt.Printf("%d. [%s] %s (%s)\n", i+1, status, title, rec.Type)
+		fmt.Printf("   ID: %d | Server ID: %d | Создано: %s\n",
 			rec.ID,
+			rec.ServerID,
 			rec.CreatedAt.Format("2006-01-02"))
 		fmt.Println()
 	}
@@ -85,29 +95,40 @@ func printRecordsSimple(records []*record.Record) error {
 	return nil
 }
 
-func printRecordsTable(records []*record.Record) error {
+func printRecordsTable(records []*client.LocalRecord) error {
 	if len(records) == 0 {
 		fmt.Println("Записи не найдены")
 		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "ID\tТип\tНазвание\tСтатус\tСоздано\tОбновлено\t\n")
-	fmt.Fprintf(w, "---\t---\t---\t---\t---\t---\t\n")
+	fmt.Fprintf(w, "ID\tServer ID\tТип\tНазвание\tСтатус\tСоздано\tОбновлено\t\n")
+	fmt.Fprintf(w, "---\t---\t---\t---\t---\t---\t---\t\n")
 
 	for _, rec := range records {
 		status := "Активна"
-		if rec.Deleted {
+		if rec.DeletedAt != nil {
 			status = "Удалена"
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t\n",
-			shortID(rec.ID, 8),
+		var meta map[string]interface{}
+		title := "Без названия"
+		if len(rec.Meta) > 0 {
+			if err := json.Unmarshal(rec.Meta, &meta); err == nil {
+				if t, ok := meta["title"].(string); ok {
+					title = t
+				}
+			}
+		}
+
+		fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t\n",
+			rec.ID,
+			rec.ServerID,
 			string(rec.Type),
-			truncate(rec.Metadata.Name, 30),
+			truncate(title, 30),
 			status,
 			rec.CreatedAt.Format("2006-01-02"),
-			rec.UpdatedAt.Format("2006-01-02"),
+			rec.LastModified.Format("2006-01-02"),
 		)
 	}
 
@@ -116,40 +137,47 @@ func printRecordsTable(records []*record.Record) error {
 	return nil
 }
 
-func printRecordsJSON(records []*record.Record) error {
+func printRecordsJSON(records []*client.LocalRecord) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(records)
 }
 
-func printRecordsCSV(records []*record.Record) error {
-	fmt.Println("ID,Type,Name,Description,Status,CreatedAt,UpdatedAt")
+func printRecordsCSV(records []*client.LocalRecord) error {
+	fmt.Println("ID,ServerID,Type,Title,Status,CreatedAt,UpdatedAt")
 
 	for _, rec := range records {
 		status := "active"
-		if rec.Deleted {
+		if rec.DeletedAt != nil {
 			status = "deleted"
 		}
 
-		fmt.Printf("%s,%s,%q,%q,%s,%s,%s\n",
+		var meta map[string]interface{}
+		title := "Без названия"
+		if len(rec.Meta) > 0 {
+			if err := json.Unmarshal(rec.Meta, &meta); err == nil {
+				if t, ok := meta["title"].(string); ok {
+					title = t
+				}
+			}
+		}
+
+		fmt.Printf("%d,%d,%s,%q,%s,%s,%s\n",
 			rec.ID,
+			rec.ServerID,
 			string(rec.Type),
-			rec.Metadata.Name,
-			rec.Metadata.Description,
+			title,
 			status,
 			rec.CreatedAt.Format(time.RFC3339),
-			rec.UpdatedAt.Format(time.RFC3339),
+			rec.LastModified.Format(time.RFC3339),
 		)
 	}
 
 	return nil
 }
 
-func shortID(id string, length int) string {
-	if len(id) <= length {
-		return id
-	}
-	return id[:length] + "..."
+func shortID(id int) string {
+	return strconv.Itoa(id)
 }
 
 func truncate(s string, length int) string {
@@ -160,9 +188,9 @@ func truncate(s string, length int) string {
 }
 
 func init() {
-	listCmd.Flags().StringVarP(&listType, "type", "t", "", "фильтр по типу записи")
-	listCmd.Flags().StringVarP(&listFormat, "format", "f", "simple", "формат вывода (simple, table, json, csv)")
-	listCmd.Flags().BoolVar(&showDeleted, "deleted", false, "показывать удаленные записи")
-	listCmd.Flags().IntVar(&limit, "limit", 50, "ограничение количества записей")
-	listCmd.Flags().IntVar(&offset, "offset", 0, "смещение для пагинации")
+	ListCmd.Flags().StringVarP(&listType, "type", "t", "", "фильтр по типу записи")
+	ListCmd.Flags().StringVarP(&listFormat, "format", "f", "simple", "формат вывода (simple, table, json, csv)")
+	ListCmd.Flags().BoolVar(&showDeleted, "deleted", false, "показывать удаленные записи")
+	ListCmd.Flags().IntVar(&limit, "limit", 50, "ограничение количества записей")
+	ListCmd.Flags().IntVar(&offset, "offset", 0, "смещение для пагинации")
 }

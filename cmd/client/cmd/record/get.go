@@ -7,6 +7,7 @@ import (
 	"gophkeeper/internal/app/client"
 	"gophkeeper/internal/domain/record"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -30,15 +31,17 @@ var GetCmd = &cobra.Command{
 			return fmt.Errorf("приложение не инициализировано")
 		}
 
-		recordID := args[0]
+		recordID, err := strconv.Atoi(args[0])
+		if err != nil {
+			return fmt.Errorf("неверный ID записи: %w", err)
+		}
 
 		// Получаем запись
-		rec, err := app.GetRecord(cmd.Context(), recordID, false)
+		rec, err := app.GetRecord(cmd.Context(), recordID)
 		if err != nil {
 			return fmt.Errorf("ошибка получения записи: %w", err)
 		}
 
-		// Выводим в зависимости от формата
 		switch outputFormat {
 		case "json":
 			return printRecordJSON(rec, showPassword)
@@ -50,106 +53,69 @@ var GetCmd = &cobra.Command{
 	},
 }
 
-func printRecordHuman(rec *record.Record, showPassword bool) error {
-	fmt.Printf("ID:          %s\n", rec.ID)
+func printRecordHuman(rec *client.LocalRecord, showPassword bool) error {
+	fmt.Printf("ID:          %d\n", rec.ID)
+	fmt.Printf("Server ID:   %d\n", rec.ServerID)
 	fmt.Printf("Тип:         %s\n", rec.Type)
-	fmt.Printf("Название:    %s\n", rec.Meta.Name)
 
-	if rec.Metadata.Description != "" {
-		fmt.Printf("Описание:    %s\n", rec.Metadata.Description)
+	var meta map[string]interface{}
+	if len(rec.Meta) > 0 {
+		if err := json.Unmarshal(rec.Meta, &meta); err == nil {
+			if title, ok := meta["title"].(string); ok {
+				fmt.Printf("Название:    %s\n", title)
+			}
+		}
 	}
 
 	fmt.Printf("Обновлено:   %s\n", rec.LastModified.Format("2006-01-02 15:04:05"))
 	fmt.Printf("Версия:      %d\n", rec.Version)
+	fmt.Printf("Синхронизирована: %v\n", rec.Synced)
 	fmt.Println()
 
-	// Выводим данные в зависимости от типа
 	switch rec.Type {
 	case record.RecTypeLogin:
-		var data map[string]string
-		if err := json.Unmarshal(rec.Meta, &data); err != nil {
-			return err
-		}
-
 		fmt.Println("=== Данные авторизации ===")
-		fmt.Printf("Логин:       %s\n", data["username"])
+		fmt.Println("(Данные зашифрованы)")
 		if showPassword {
-			fmt.Printf("Пароль:      %s\n", data["password"])
-		} else {
-			fmt.Printf("Пароль:      ********\n")
-		}
-		if data["url"] != "" {
-			fmt.Printf("URL:         %s\n", data["url"])
+			fmt.Println("Используйте --decrypt для расшифровки")
 		}
 
 	case record.RecTypeText:
 		fmt.Println("=== Текст заметки ===")
-		fmt.Println(string(rec.Data))
+		fmt.Println("(Данные зашифрованы)")
 
 	case record.RecTypeCard:
-		var data map[string]string
-		if err := json.Unmarshal(rec.Meta, &data); err != nil {
-			return err
-		}
-
 		fmt.Println("=== Данные карты ===")
-		fmt.Printf("Номер:       %s\n", maskCardNumber(data["number"]))
-		fmt.Printf("Держатель:   %s\n", data["holder"])
-		fmt.Printf("Срок:        %s\n", data["expiryDate"])
-		if showPassword {
-			fmt.Printf("CVV:         %s\n", data["cvv"])
-		} else {
-			fmt.Printf("CVV:         ***\n")
-		}
+		fmt.Println("(Данные зашифрованы)")
 
-	case record.TypeBinary:
+	case record.RecTypeBinary:
 		fmt.Println("=== Файл ===")
-		fmt.Printf("Размер:      %d байт\n", len(rec.Data))
-		fmt.Printf("Имя файла:   %s\n", rec.Metadata.Description)
+		fmt.Printf("Размер:      %d байт\n", len(rec.EncryptedData))
 		fmt.Println("Используйте команду 'export' для сохранения файла")
 	}
 
 	return nil
 }
 
-func printRecordJSON(rec *record.Record, showPassword bool) error {
+func printRecordJSON(rec *client.LocalRecord, showPassword bool) error {
 	output := struct {
-		ID        string          `json:"id"`
-		Type      string          `json:"type"`
-		Metadata  record.Metadata `json:"metadata"`
-		Data      interface{}     `json:"data"`
-		CreatedAt string          `json:"created_at"`
-		UpdatedAt string          `json:"updated_at"`
-		Version   int             `json:"version"`
+		ID           int             `json:"id"`
+		ServerID     int             `json:"server_id"`
+		Type         string          `json:"type"`
+		Meta         json.RawMessage `json:"meta"`
+		Version      int             `json:"version"`
+		LastModified string          `json:"last_modified"`
+		CreatedAt    string          `json:"created_at"`
+		Synced       bool            `json:"synced"`
 	}{
-		ID:        rec.ID,
-		Type:      string(rec.Type),
-		Metadata:  rec.Metadata,
-		CreatedAt: rec.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: rec.UpdatedAt.Format(time.RFC3339),
-		Version:   rec.Version,
-	}
-
-	// Обрабатываем данные в зависимости от типа
-	switch rec.Type {
-	case record.RecTypeLogin, record.RecTypeCard:
-		var data map[string]string
-		if err := json.Unmarshal(rec.Data, &data); err != nil {
-			return err
-		}
-
-		if !showPassword {
-			if rec.Type == record.RecTypeLogin {
-				data["password"] = "********"
-			} else if rec.Type == record.RecTypeCard {
-				data["cvv"] = "***"
-				data["number"] = maskCardNumber(data["number"])
-			}
-		}
-		output.Data = data
-
-	default:
-		output.Data = string(rec.Data)
+		ID:           rec.ID,
+		ServerID:     rec.ServerID,
+		Type:         string(rec.Type),
+		Meta:         rec.Meta,
+		Version:      rec.Version,
+		LastModified: rec.LastModified.Format(time.RFC3339),
+		CreatedAt:    rec.CreatedAt.Format(time.RFC3339),
+		Synced:       rec.Synced,
 	}
 
 	encoder := json.NewEncoder(os.Stdout)
@@ -157,16 +123,7 @@ func printRecordJSON(rec *record.Record, showPassword bool) error {
 	return encoder.Encode(output)
 }
 
-func maskCardNumber(number string) string {
-	if len(number) < 4 {
-		return number
-	}
-	return "**** **** **** " + number[len(number)-4:]
-}
-
-func printRecordYAML(rec *record.Record, showPassword bool) error {
-	// Для простоты используем JSON с преобразованием в YAML
-	// В реальном проекте можно использовать go-yaml
+func printRecordYAML(rec *client.LocalRecord, showPassword bool) error {
 	return printRecordJSON(rec, showPassword)
 }
 

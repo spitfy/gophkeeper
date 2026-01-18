@@ -22,7 +22,7 @@ type Config struct {
 }
 
 type defaultConfig struct {
-	RunAddress      string
+	RunPort         int
 	AccrualAddress  string
 	AccrualInterval int
 	DatabaseURI     string
@@ -38,7 +38,7 @@ type db struct {
 }
 
 type server struct {
-	RunAddress string `env:"RUN_ADDRESS"`
+	RunPort int `env:"RUN_PORT"`
 }
 
 type logger struct {
@@ -52,7 +52,7 @@ func MustLoad() *Config {
 
 	viper.AutomaticEnv()
 	d := defaultConfig{
-		RunAddress:  viper.GetString("run_address"),
+		RunPort:     viper.GetInt("run_port"),
 		DatabaseURI: viper.GetString("database_uri"),
 		LogLevel:    viper.GetString("log_level"),
 		Secret:      viper.GetString("secret"),
@@ -69,14 +69,9 @@ func MustLoad() *Config {
 			DatabaseURI: d.DatabaseURI,
 			Migrations:  d.Migrations,
 		},
-		Server: server{RunAddress: d.RunAddress},
+		Server: server{RunPort: d.RunPort},
 		Logger: logger{LogLevel: d.LogLevel},
 	}
 
 	return &config
-}
-
-func SaveToken(token string) interface{} {
-	_ = token
-	return nil
 }

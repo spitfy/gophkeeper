@@ -2,10 +2,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"golang.org/x/exp/slog"
 	"os"
 	"path/filepath"
+
+	"golang.org/x/exp/slog"
 
 	"gophkeeper/internal/app/client"
 	"gophkeeper/internal/app/client/config"
@@ -45,8 +47,7 @@ func Execute() {
 	}
 }
 
-func setupApp(_ *cobra.Command, _ []string) error {
-	// Загружаем конфигурацию
+func setupApp(cmd *cobra.Command, _ []string) error {
 	var err error
 	cfg, err = loadConfig()
 	if err != nil {
@@ -66,6 +67,12 @@ func setupApp(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("ошибка инициализации приложения: %w", err)
 	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd.SetContext(context.WithValue(ctx, "app", app))
 
 	return nil
 }

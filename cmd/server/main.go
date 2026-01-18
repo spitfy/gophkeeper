@@ -38,12 +38,12 @@ func main() {
 
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
 		server := &http.Server{
-			Addr:    fmt.Sprintf(":%d", options.Port),
+			Addr:    fmt.Sprintf(":%d", cfg.Server.RunPort),
 			Handler: router,
 		}
 
 		hooks.OnStart(func() {
-			log.Info("server starting", slog.Int("port", options.Port))
+			log.Info("server starting", slog.Int("port", cfg.Server.RunPort))
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Error("server failed", sl.Err(err))
 			}

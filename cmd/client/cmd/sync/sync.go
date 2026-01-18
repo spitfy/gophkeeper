@@ -53,10 +53,7 @@ func runSync(ctx context.Context, app *client.App, force bool) error {
 		return fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
 	}
 
-	if !app.sync.config.Enabled {
-		fmt.Println("⚠️  Синхронизация отключена в настройках")
-		return nil
-	}
+	syncService := app.GetSyncService()
 
 	fmt.Println("Проверка соединения с сервером...")
 	if err := app.CheckConnection(); err != nil {
@@ -66,7 +63,7 @@ func runSync(ctx context.Context, app *client.App, force bool) error {
 	fmt.Println("Начало синхронизации...")
 	start := time.Now()
 
-	result, err := app.sync.Sync(ctx)
+	result, err := app.Sync(ctx)
 	if err != nil {
 		return fmt.Errorf("ошибка синхронизации: %w", err)
 	}
@@ -101,10 +98,12 @@ func runSync(ctx context.Context, app *client.App, force bool) error {
 		}
 	}
 
-	stats := app.sync.GetStats()
+	stats := syncService.GetStats()
 	fmt.Printf("Всего синхронизаций: %d\n", stats.TotalSyncs)
-	fmt.Printf("Последняя успешная: %s\n",
-		stats.LastSuccessful.Format("2006-01-02 15:04:05"))
+	if !stats.LastSync.IsZero() {
+		fmt.Printf("Последняя синхронизация: %s\n",
+			stats.LastSync.Format("2006-01-02 15:04:05"))
+	}
 
 	return nil
 }
@@ -112,34 +111,26 @@ func runSync(ctx context.Context, app *client.App, force bool) error {
 func showSyncStatus(ctx context.Context, app *client.App) error {
 	fmt.Println("=== Статус синхронизации ===")
 
-	stats := app.sync.GetStats()
+	syncService := app.GetSyncService()
+	stats := syncService.GetStats()
 
 	fmt.Println("📊 Статистика:")
 	fmt.Printf("  Всего синхронизаций: %d\n", stats.TotalSyncs)
 	fmt.Printf("  Успешных: %d\n", stats.TotalSyncs-stats.TotalErrors)
 	fmt.Printf("  С ошибками: %d\n", stats.TotalErrors)
-	fmt.Printf("  Загружено на сервер: %d записей\n", stats.TotalUploaded)
-	fmt.Printf("  Загружено с сервера: %d записей\n", stats.TotalDownloaded)
+	fmt.Printf("  Загружено на сервер: %d записей\n", stats.TotalUploads)
+	fmt.Printf("  Загружено с сервера: %d записей\n", stats.TotalDownloads)
 	fmt.Printf("  Обнаружено конфликтов: %d\n", stats.TotalConflicts)
 	fmt.Printf("  Разрешено конфликтов: %d\n", stats.TotalResolved)
 	fmt.Printf("  Среднее время: %.2f сек\n", stats.AvgSyncDuration)
 
-	if !stats.LastSuccessful.IsZero() {
+	if !stats.LastSync.IsZero() {
 		fmt.Printf("\n⏰ Временные метки:\n")
-		fmt.Printf("  Последняя успешная: %s\n",
-			stats.LastSuccessful.Format("2006-01-02 15:04:05"))
-		fmt.Printf("  Последняя неудачная: %s\n",
-			stats.LastFailed.Format("2006-01-02 15:04:05"))
+		fmt.Printf("  Последняя синхронизация: %s\n",
+			stats.LastSync.Format("2006-01-02 15:04:05"))
 	}
 
-	fmt.Printf("\n⚙️  Конфигурация:\n")
-	config := app.sync.config
-	fmt.Printf("  Интервал: %v\n", config.Interval)
-	fmt.Printf("  Размер пакета: %d записей\n", config.BatchSize)
-	fmt.Printf("  Макс. попыток: %d\n", config.MaxRetries)
-	fmt.Printf("  Стратегия конфликтов: %s\n", config.ConflictStrategy)
-	fmt.Printf("  Авторазрешение: %v\n", config.AutoResolve)
-	fmt.Printf("  Включена: %v\n", config.Enabled)
+	fmt.Printf("\n⚙️  Конфигурация: (используйте файл sync_config.json для настройки)\n")
 
 	// Проверяем соединение с сервером
 	fmt.Printf("\n🌐 Соединение с сервером: ")
@@ -161,7 +152,8 @@ func showSyncStatus(ctx context.Context, app *client.App) error {
 }
 
 func resetSyncStats(app *client.App) error {
-	app.sync.ResetStats()
+	syncService := app.GetSyncService()
+	syncService.ResetStats()
 	fmt.Println("✅ Статистика синхронизации сброшена")
 	return nil
 }

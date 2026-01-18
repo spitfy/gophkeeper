@@ -85,7 +85,7 @@ var LoginCmd = &cobra.Command{
 
 		// Синхронизируем данные
 		fmt.Println("Синхронизация данных...")
-		if err := app.Sync(ctx); err != nil {
+		if _, err := app.Sync(ctx); err != nil {
 			fmt.Printf("⚠️  Предупреждение: ошибка синхронизации: %v\n", err)
 			fmt.Println("Вы можете продолжить работу в офлайн-режиме")
 		} else {

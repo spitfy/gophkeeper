@@ -365,36 +365,9 @@ func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 }
 
 // ChangePassword изменяет пароль пользователя
-func (a *App) ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error {
-	// Проверяем, что мастер-ключ разблокирован
-	if !a.masterKeyReady {
-		return fmt.Errorf("мастер-ключ не разблокирован")
-	}
-
-	// Получаем текущий токен
-	token, err := a.GetToken()
-	if err != nil {
-		return fmt.Errorf("токен не найден: %w", err)
-	}
-
-	// Устанавливаем токен для HTTP клиента
-	a.httpClient.SetToken(token)
-
-	// Отправляем запрос на смену пароля
-	if err := a.httpClient.ChangePassword(ctx, req); err != nil {
-		return err
-	}
-
-	// Если изменился мастер-пароль, нужно перешифровать локальные данные
-	if req.MasterPassword != "" {
-		if err := a.reencryptLocalData(req.MasterPassword); err != nil {
-			return fmt.Errorf("ошибка перешифровки данных: %w", err)
-		}
-	}
-
-	a.log.Info("Пароль успешно изменен")
-	return nil
-}
+// TODO: Реализовать на сервере эндпоинт /user/change-password
+// func (a *App) ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error {
+// }
 
 func (a *App) reencryptLocalData(newMasterPassword string) error {
 	// Получаем все записи
@@ -776,12 +749,14 @@ func (a *App) DeleteRecord(ctx context.Context, id int, permanent bool) error {
 }
 
 // Sync запускает синхронизацию
-func (a *App) Sync(ctx context.Context) error {
-	_, err := a.syncService.Sync(ctx)
-	return err
+func (a *App) Sync(ctx context.Context) (*SyncResult, error) {
+	return a.syncService.Sync(ctx)
 }
 
-// ==================== Sync API Wrappers ====================
+// GetSyncService возвращает сервис синхронизации
+func (a *App) GetSyncService() *SyncService {
+	return a.syncService
+}
 
 // GetSyncStatus получает статус синхронизации
 func (a *App) GetSyncStatus(ctx context.Context) (*sync.SyncStatus, error) {

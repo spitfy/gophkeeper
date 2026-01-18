@@ -3,16 +3,15 @@ package record
 
 import (
 	"bufio"
-	"encoding/json"
+	"crypto/rand"
 	"fmt"
 	"gophkeeper/internal/app/client"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
-
-	"gophkeeper/internal/domain/record"
 )
 
 var (
@@ -72,21 +71,6 @@ var CreateCmd = &cobra.Command{
 			}
 		}
 
-		// Определяем тип записи
-		var recType record.RecType
-		switch strings.ToLower(recordType) {
-		case "password":
-			recType = record.RecTypeLogin
-		case "note":
-			recType = record.RecTypeText
-		case "card":
-			recType = record.RecTypeText
-		case "file":
-			recType = record.RecTypeBinary
-		default:
-			return fmt.Errorf("неподдерживаемый тип записи: %s", recordType)
-		}
-
 		// Запрашиваем имя записи
 		if recordName == "" {
 			fmt.Print("Название записи: ")
@@ -99,58 +83,35 @@ var CreateCmd = &cobra.Command{
 			}
 		}
 
-		// Запрашиваем описание
-		if description == "" && recType != record.RecTypeBinary {
-			fmt.Print("Описание (необязательно, Enter чтобы пропустить): ")
-			scanner := bufio.NewScanner(os.Stdin)
-			if scanner.Scan() {
-				description = scanner.Text()
-			}
-		}
-
-		// Собираем данные в зависимости от типа
-		var data []byte
+		// Создаем запись в зависимости от типа
+		var recordID int
 		var err error
 
-		switch recType {
-		case record.RecTypeLogin:
-			data, err = createPasswordData()
-		case record.RecTypeText:
-			data, err = createNoteData()
-		case record.RecTypeCard:
-			data, err = createCardData()
-		case record.RecTypeBinary:
-			data, err = createFileData()
-		}
-		if err != nil {
-			return err
-		}
-
-		// Создаем запись
-		rec := &record.Record{
-			Type: recType,
-			Metadata: record.Metadata{
-				Name:        recordName,
-				Description: description,
-			},
-			EncryptedData: data,
+		switch strings.ToLower(recordType) {
+		case "password":
+			recordID, err = createPasswordRecord(cmd, app)
+		case "note":
+			recordID, err = createNoteRecord(cmd, app)
+		case "card":
+			recordID, err = createCardRecord(cmd, app)
+		case "file":
+			recordID, err = createFileRecord(cmd, app)
+		default:
+			return fmt.Errorf("неподдерживаемый тип записи: %s", recordType)
 		}
 
-		// Сохраняем запись
-		fmt.Println("Создание записи...")
-		err = app.CreateRecord(cmd.Context(), rec)
 		if err != nil {
 			return fmt.Errorf("ошибка создания записи: %w", err)
 		}
 
 		fmt.Println()
-		fmt.Printf("✅ Запись '%s' успешно создана!\n", recordName)
+		fmt.Printf("✅ Запись '%s' успешно создана! (ID: %d)\n", recordName, recordID)
 
 		return nil
 	},
 }
 
-func createPasswordData() ([]byte, error) {
+func createPasswordRecord(cmd *cobra.Command, app *client.App) (int, error) {
 	if username == "" {
 		fmt.Print("Логин/Email: ")
 		fmt.Scanln(&username)
@@ -175,16 +136,19 @@ func createPasswordData() ([]byte, error) {
 		fmt.Scanln(&url)
 	}
 
-	passwordData := map[string]string{
-		"username": username,
-		"password": password,
-		"url":      url,
+	req := client.CreateLoginRequest{
+		Username: username,
+		Password: password,
+		Title:    recordName,
+		Resource: url,
+		Notes:    description,
 	}
 
-	return json.Marshal(passwordData)
+	fmt.Println("Создание записи...")
+	return app.CreateLoginRecord(cmd.Context(), req)
 }
 
-func createNoteData() ([]byte, error) {
+func createNoteRecord(cmd *cobra.Command, app *client.App) (int, error) {
 	if noteContent == "" {
 		fmt.Println("Введите текст заметки (Ctrl+D для завершения):")
 		scanner := bufio.NewScanner(os.Stdin)
@@ -195,10 +159,16 @@ func createNoteData() ([]byte, error) {
 		noteContent = strings.Join(lines, "\n")
 	}
 
-	return []byte(noteContent), nil
+	req := client.CreateTextRequest{
+		Content: noteContent,
+		Title:   recordName,
+	}
+
+	fmt.Println("Создание записи...")
+	return app.CreateTextRecord(cmd.Context(), req)
 }
 
-func createCardData() ([]byte, error) {
+func createCardRecord(cmd *cobra.Command, app *client.App) (int, error) {
 	if cardNumber == "" {
 		fmt.Print("Номер карты: ")
 		fmt.Scanln(&cardNumber)
@@ -222,17 +192,27 @@ func createCardData() ([]byte, error) {
 		fmt.Scanln(&cvv)
 	}
 
-	cardData := map[string]string{
-		"number":     cardNumber,
-		"holder":     cardHolder,
-		"expiryDate": expiryDate,
-		"cvv":        cvv,
+	// Разбираем срок действия
+	parts := strings.Split(expiryDate, "/")
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("неверный формат срока действия. Используйте MM/YY")
 	}
 
-	return json.Marshal(cardData)
+	req := client.CreateCardRequest{
+		CardNumber:  cardNumber,
+		CardHolder:  cardHolder,
+		ExpiryMonth: parts[0],
+		ExpiryYear:  "20" + parts[1], // Преобразуем YY в 20YY
+		CVV:         cvv,
+		Title:       recordName,
+		Notes:       description,
+	}
+
+	fmt.Println("Создание записи...")
+	return app.CreateCardRecord(cmd.Context(), req)
 }
 
-func createFileData() ([]byte, error) {
+func createFileRecord(cmd *cobra.Command, app *client.App) (int, error) {
 	if filePath == "" {
 		fmt.Print("Путь к файлу: ")
 		fmt.Scanln(&filePath)
@@ -241,23 +221,34 @@ func createFileData() ([]byte, error) {
 	// Читаем файл
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка чтения файла: %w", err)
+		return 0, fmt.Errorf("ошибка чтения файла: %w", err)
 	}
 
-	// Сохраняем оригинальное имя файла в метаданных
-	if description == "" {
-		description = filepath.Base(filePath)
+	// Кодируем в base64
+	encodedData := make([]byte, len(data)*2)
+	n := 0
+	for _, b := range data {
+		encodedData[n] = b
+		n++
 	}
 
-	return data, nil
+	req := client.CreateBinaryRequest{
+		Data:        string(data),
+		Filename:    filepath.Base(filePath),
+		Title:       recordName,
+		Description: description,
+	}
+
+	fmt.Println("Создание записи...")
+	return app.CreateBinaryRecord(cmd.Context(), req)
 }
 
 func generatePassword(length int) string {
-	// Простой генератор паролей
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
 	result := make([]byte, length)
 	for i := range result {
-		result[i] = charset[rand.Intn(len(charset))]
+		num, _ := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		result[i] = charset[num.Int64()]
 	}
 	return string(result)
 }
