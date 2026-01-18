@@ -53,6 +53,14 @@ func runSync(ctx context.Context, app *client.App, force bool) error {
 		return fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
 	}
 
+	if !app.IsMasterKeyUnlocked() {
+		fmt.Println("❌ Мастер-ключ заблокирован")
+		fmt.Println()
+		fmt.Println("Для синхронизации необходимо разблокировать мастер-ключ.")
+		fmt.Println("Выполните команду: gophkeeper unlock")
+		return fmt.Errorf("мастер-ключ заблокирован")
+	}
+
 	syncService := app.GetSyncService()
 
 	fmt.Println("Проверка соединения с сервером...")

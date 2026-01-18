@@ -45,7 +45,14 @@ var CreateCmd = &cobra.Command{
 			return fmt.Errorf("приложение не инициализировано")
 		}
 
-		// Если тип записи не указан, спрашиваем
+		if !app.IsMasterKeyUnlocked() {
+			fmt.Println("❌ Мастер-ключ заблокирован")
+			fmt.Println()
+			fmt.Println("Для создания записей необходимо разблокировать мастер-ключ.")
+			fmt.Println("Выполните команду: gophkeeper unlock")
+			return fmt.Errorf("мастер-ключ заблокирован")
+		}
+
 		if recordType == "" {
 			fmt.Println("Выберите тип записи:")
 			fmt.Println("1. Пароль (логин/пароль)")

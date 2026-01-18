@@ -137,6 +137,7 @@ func (h *httpClient) doRequestWithRetry(ctx context.Context, method, path string
 		// Добавляем заголовки
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", h.userAgent)
+		h.log.Debug("token", h.token)
 		if h.token != "" {
 			req.Header.Set("Authorization", "Bearer "+h.token)
 		}

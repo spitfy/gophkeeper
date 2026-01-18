@@ -46,9 +46,23 @@ var LoginCmd = &cobra.Command{
 		}
 		fmt.Println()
 
-		// Запрашиваем мастер-пароль, если нужно расшифровать локальные данные
-		if app.HasLocalData() {
-			fmt.Print("Мастер-пароль (для расшифровки локальных данных): ")
+		// Проверяем, инициализирован ли мастер-ключ
+		if !app.IsInitialized() {
+			// Первый вход - инициализируем мастер-ключ
+			fmt.Print("Мастер-пароль (для шифрования данных): ")
+			masterPassword, err := term.ReadPassword(int(os.Stdin.Fd()))
+			if err != nil {
+				return fmt.Errorf("ошибка чтения мастер-пароля: %w", err)
+			}
+			fmt.Println()
+
+			if err := app.InitMasterKey(string(masterPassword)); err != nil {
+				return fmt.Errorf("ошибка инициализации мастер-ключа: %w", err)
+			}
+			fmt.Println("✓ Мастер-ключ инициализирован")
+		} else {
+			// Разблокируем существующий мастер-ключ
+			fmt.Print("Мастер-пароль (для расшифровки данных): ")
 			masterPassword, err := term.ReadPassword(int(os.Stdin.Fd()))
 			if err != nil {
 				return fmt.Errorf("ошибка чтения мастер-пароля: %w", err)
@@ -85,8 +99,12 @@ var LoginCmd = &cobra.Command{
 
 		// Синхронизируем данные
 		fmt.Println("Синхронизация данных...")
-		if _, err := app.Sync(ctx); err != nil {
+		result, err := app.Sync(ctx)
+		if err != nil {
 			fmt.Printf("⚠️  Предупреждение: ошибка синхронизации: %v\n", err)
+			fmt.Println("Вы можете продолжить работу в офлайн-режиме")
+		} else if result != nil && !result.Success {
+			fmt.Printf("⚠️  Синхронизация завершена с ошибками (%d)\n", len(result.Errors))
 			fmt.Println("Вы можете продолжить работу в офлайн-режиме")
 		} else {
 			fmt.Println("✓ Данные синхронизированы")

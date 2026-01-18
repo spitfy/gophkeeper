@@ -89,7 +89,53 @@ var initCmd = &cobra.Command{
 	},
 }
 
+var unlockCmd = &cobra.Command{
+	Use:   "unlock",
+	Short: "Разблокировать мастер-ключ",
+	Long: `Разблокирует мастер-ключ для работы с зашифрованными данными.
+	
+Мастер-ключ необходим для:
+- Создания новых записей
+- Просмотра зашифрованных данных
+- Синхронизации с сервером`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Проверяем, инициализирован ли клиент
+		if !app.IsInitialized() {
+			return fmt.Errorf("клиент не инициализирован. Выполните: gophkeeper init")
+		}
+
+		// Проверяем, не разблокирован ли уже
+		if app.IsMasterKeyUnlocked() {
+			fmt.Println("✅ Мастер-ключ уже разблокирован")
+			return nil
+		}
+
+		fmt.Println("=== Разблокировка мастер-ключа ===")
+		fmt.Println()
+
+		// Запрашиваем мастер-пароль
+		fmt.Print("Введите мастер-пароль: ")
+		password, err := term.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			return fmt.Errorf("ошибка чтения пароля: %w", err)
+		}
+		fmt.Println()
+
+		// Разблокируем мастер-ключ
+		if err := app.UnlockMasterKey(string(password)); err != nil {
+			return fmt.Errorf("ошибка разблокировки: %w", err)
+		}
+
+		fmt.Println("✅ Мастер-ключ успешно разблокирован!")
+		return nil
+	},
+}
+
 func init() {
+	// Добавляем команды инициализации
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(unlockCmd)
+
 	// Добавляем команды аутентификации
 	rootCmd.AddCommand(auth.AuthCmd)
 	auth.AuthCmd.AddCommand(auth.RegisterCmd)

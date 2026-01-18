@@ -88,6 +88,13 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// Инициализируем сервис синхронизации
 	app.syncService = NewSyncService(app)
 
+	// Загружаем токен если он есть
+	if token, err := app.GetToken(); err == nil && token != "" {
+		httpCl.SetToken(token)
+		app.authenticated = true
+		log.Debug("Токен загружен из файла")
+	}
+
 	return app, nil
 }
 
@@ -128,23 +135,19 @@ func (a *App) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel = cancel
 
-	// Запускаем обработку сигналов
 	go a.handleSignals()
 
-	// Запускаем фоновую синхронизацию
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
 		a.startSync(ctx)
 	}()
 
-	// Здесь будет запуск CLI интерфейса
 	a.log.Info("Клиент запущен",
 		"server", a.config.ServerAddress,
 		"env", a.config.Env,
 	)
 
-	// Блокируем main горутину
 	a.wg.Wait()
 	return nil
 }
@@ -158,10 +161,6 @@ func (a *App) IsInitialized() bool {
 
 // InitMasterKey инициализирует мастер-ключ
 func (a *App) InitMasterKey(password string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	// Генерируем мастер-ключ
 	if err := a.crypto.GenerateMasterKey(password); err != nil {
 		return fmt.Errorf("ошибка генерации мастер-ключа: %w", err)
 	}
@@ -172,9 +171,11 @@ func (a *App) InitMasterKey(password string) error {
 		return fmt.Errorf("ошибка получения хэша ключа: %w", err)
 	}
 
+	a.mu.Lock()
 	a.state.MasterKeyHash = keyHash
 	a.masterKeyReady = true
 	a.state.Initialized = true
+	a.mu.Unlock()
 
 	if err := a.saveAppState(); err != nil {
 		return fmt.Errorf("ошибка сохранения состояния: %w", err)
@@ -205,15 +206,20 @@ func (a *App) InitStorage() error {
 
 // UnlockMasterKey разблокирует мастер-ключ
 func (a *App) UnlockMasterKey(password string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	if err := a.crypto.UnlockMasterKey(password); err != nil {
 		return fmt.Errorf("неверный мастер-пароль: %w", err)
 	}
 
+	a.mu.Lock()
 	a.masterKeyReady = true
+	a.mu.Unlock()
+
 	return nil
+}
+
+// IsMasterKeyUnlocked проверяет, разблокирован ли мастер-ключ
+func (a *App) IsMasterKeyUnlocked() bool {
+	return !a.crypto.IsLocked()
 }
 
 // HasLocalData проверяет наличие локальных данных

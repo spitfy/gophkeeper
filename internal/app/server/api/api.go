@@ -14,6 +14,7 @@
 package api
 
 import (
+	healthAPI "gophkeeper/internal/app/server/api/http/health"
 	"gophkeeper/internal/app/server/api/http/middleware"
 	"gophkeeper/internal/app/server/api/http/middleware/auth"
 	"gophkeeper/internal/app/server/api/http/middleware/logger"
@@ -33,6 +34,7 @@ import (
 )
 
 type Handlers struct {
+	Health *healthAPI.Handler
 	User   *userAPI.Handler
 	Record *recordAPI.Handler
 	Sync   *syncAPI.Handler
@@ -50,6 +52,7 @@ func New(storage *postgres.Storage, log *slog.Logger) *chi.Mux {
 	API := humachi.New(mux, config)
 
 	h := handlers(storage, log)
+	h.Health.SetupRoutes(API)
 	h.User.SetupRoutes(API)
 	h.Record.SetupRoutes(API)
 	h.Sync.SetupRoutes(API)
@@ -63,6 +66,9 @@ func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
 	authMW := auth.New(sessionService, log)
 	loggerMW := logger.New(log)
 	middlewares := middleware.NewContainer()
+
+	middlewares.Add(loggerMW.Middleware())
+	healthHandler := healthAPI.NewHandler(log, middlewares.GetAllAndClear())
 
 	userRepo := postgres.NewUserRepository(storage, log)
 	userService := user.NewService(userRepo, log)
@@ -82,6 +88,7 @@ func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
 	syncHandler := syncAPI.NewHandler(syncService, log, middlewares.GetAllAndClear())
 
 	return &Handlers{
+		Health: healthHandler,
 		User:   userHandler,
 		Record: recordHandler,
 		Sync:   syncHandler,

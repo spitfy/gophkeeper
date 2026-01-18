@@ -137,7 +137,6 @@ func (s *SyncService) Sync(ctx context.Context) (*SyncResult, error) {
 		Errors:    []SyncError{},
 	}
 
-	// Проверяем условия для синхронизации
 	if err := s.preSyncChecks(ctx); err != nil {
 		result.Errors = append(result.Errors, SyncError{
 			Error:     err.Error(),
@@ -150,7 +149,6 @@ func (s *SyncService) Sync(ctx context.Context) (*SyncResult, error) {
 		return result, err
 	}
 
-	// Выполняем синхронизацию
 	s.log.Info("Начало синхронизации", "start_time", result.StartTime)
 
 	// 1. Получаем метаданные синхронизации
