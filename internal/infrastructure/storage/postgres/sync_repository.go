@@ -3,11 +3,12 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/hex"
 	"fmt"
-	"golang.org/x/exp/slog"
 	"strings"
 	"time"
+
+	"golang.org/x/exp/slog"
 
 	"gophkeeper/internal/domain/sync"
 )
@@ -26,12 +27,12 @@ func NewSyncRepository(db *Storage, log *slog.Logger) *SyncRepository {
 	}
 }
 
-// GetSyncStatus возвращает статус синхронизации пользователя
+// GetSyncStatus возвращает статус синхронизации пользователя из VIEW
 func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.SyncStatus, error) {
 	query := `
 		SELECT user_id, last_sync_time, total_records, device_count, 
 		       storage_used, storage_limit, sync_version
-		FROM sync_status
+		FROM sync_status_view
 		WHERE user_id = $1
 	`
 
@@ -50,8 +51,16 @@ func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.S
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// Создаем начальный статус
-			return r.createInitialSyncStatus(ctx, userID)
+			// Возвращаем пустой статус для нового пользователя
+			return &sync.SyncStatus{
+				UserID:       userID,
+				LastSyncTime: time.Time{},
+				TotalRecords: 0,
+				DeviceCount:  0,
+				StorageUsed:  0,
+				StorageLimit: 104857600, // 100 MB
+				SyncVersion:  0,
+			}, nil
 		}
 		return nil, fmt.Errorf("failed to get sync status: %w", err)
 	}
@@ -63,38 +72,10 @@ func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.S
 	return &status, nil
 }
 
-// UpdateSyncStatus обновляет статус синхронизации
+// UpdateSyncStatus обновляет статус синхронизации (теперь это no-op, т.к. используется VIEW)
 func (r *SyncRepository) UpdateSyncStatus(ctx context.Context, status *sync.SyncStatus) error {
-	query := `
-		INSERT INTO sync_status 
-			(user_id, last_sync_time, total_records, device_count, 
-			 storage_used, storage_limit, sync_version, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (user_id) DO UPDATE SET
-			last_sync_time = EXCLUDED.last_sync_time,
-			total_records = EXCLUDED.total_records,
-			device_count = EXCLUDED.device_count,
-			storage_used = EXCLUDED.storage_used,
-			storage_limit = EXCLUDED.storage_limit,
-			sync_version = EXCLUDED.sync_version,
-			updated_at = EXCLUDED.updated_at
-	`
-
-	_, err := r.db.Pool().Exec(ctx, query,
-		status.UserID,
-		status.LastSyncTime,
-		status.TotalRecords,
-		status.DeviceCount,
-		status.StorageUsed,
-		status.StorageLimit,
-		status.SyncVersion,
-		time.Now(),
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to update sync status: %w", err)
-	}
-
+	// VIEW автоматически вычисляет данные, ничего обновлять не нужно
+	r.log.Debug("UpdateSyncStatus called but using VIEW, no action needed", "user_id", status.UserID)
 	return nil
 }
 
@@ -165,14 +146,7 @@ func (r *SyncRepository) RegisterDevice(ctx context.Context, device *sync.Device
 		return fmt.Errorf("failed to register device: %w", err)
 	}
 
-	// Обновляем счетчик устройств в статусе
-	status, err := r.GetSyncStatus(ctx, device.UserID)
-	if err != nil {
-		return fmt.Errorf("failed to get sync status: %w", err)
-	}
-
-	status.DeviceCount++
-	return r.UpdateSyncStatus(ctx, status)
+	return nil
 }
 
 // UpdateDeviceSyncTime обновляет время синхронизации устройства
@@ -247,15 +221,15 @@ func (r *SyncRepository) DeleteDevice(ctx context.Context, deviceID int) error {
 	return nil
 }
 
-// GetRecordsForSync возвращает записи для синхронизации
+// GetRecordsForSync возвращает записи для синхронизации (используем реальную схему records)
 func (r *SyncRepository) GetRecordsForSync(ctx context.Context, userID int, lastSyncTime time.Time, limit, offset int) ([]*sync.RecordSync, error) {
 	query := `
-		SELECT id, user_id, type, metadata, data, version, deleted, created_at, updated_at
+		SELECT id, user_id, type, encrypted_data, meta, version, last_modified, 
+		       deleted_at, checksum, device_id
 		FROM records
 		WHERE user_id = $1 
-			AND (updated_at > $2 OR created_at > $2)
-			AND deleted = false
-		ORDER BY updated_at ASC
+			AND last_modified > $2
+		ORDER BY last_modified ASC
 		LIMIT $3 OFFSET $4
 	`
 
@@ -267,31 +241,11 @@ func (r *SyncRepository) GetRecordsForSync(ctx context.Context, userID int, last
 
 	var records []*sync.RecordSync
 	for rows.Next() {
-		var rec sync.RecordSync
-		var metadataJSON string
-
-		err := rows.Scan(
-			&rec.ID,
-			&rec.UserID,
-			&rec.Type,
-			&metadataJSON,
-			&rec.Data,
-			&rec.Version,
-			&rec.Deleted,
-			&rec.CreatedAt,
-			&rec.UpdatedAt,
-		)
-
+		rec, err := r.scanRecordSync(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan record: %w", err)
 		}
-
-		// Парсим метаданные
-		if err := json.Unmarshal([]byte(metadataJSON), &rec.Metadata); err != nil {
-			return nil, fmt.Errorf("failed to parse metadata: %w", err)
-		}
-
-		records = append(records, &rec)
+		records = append(records, rec)
 	}
 
 	return records, nil
@@ -300,26 +254,14 @@ func (r *SyncRepository) GetRecordsForSync(ctx context.Context, userID int, last
 // GetRecordByID возвращает запись по ID
 func (r *SyncRepository) GetRecordByID(ctx context.Context, recordID int) (*sync.RecordSync, error) {
 	query := `
-		SELECT id, user_id, type, metadata, data, version, deleted, created_at, updated_at
+		SELECT id, user_id, type, encrypted_data, meta, version, last_modified, 
+		       deleted_at, checksum, device_id
 		FROM records
-		WHERE id = $1 AND deleted = false
+		WHERE id = $1
 	`
 
-	var rec sync.RecordSync
-	var metadataJSON string
-
-	err := r.db.Pool().QueryRow(ctx, query, recordID).Scan(
-		&rec.ID,
-		&rec.UserID,
-		&rec.Type,
-		&metadataJSON,
-		&rec.Data,
-		&rec.Version,
-		&rec.Deleted,
-		&rec.CreatedAt,
-		&rec.UpdatedAt,
-	)
-
+	row := r.db.Pool().QueryRow(ctx, query, recordID)
+	rec, err := r.scanRecordSync(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, sync.ErrRecordNotFound
@@ -327,21 +269,18 @@ func (r *SyncRepository) GetRecordByID(ctx context.Context, recordID int) (*sync
 		return nil, fmt.Errorf("failed to get record: %w", err)
 	}
 
-	// Парсим метаданные
-	if err := json.Unmarshal([]byte(metadataJSON), &rec.Metadata); err != nil {
-		return nil, fmt.Errorf("failed to parse metadata: %w", err)
-	}
-
-	return &rec, nil
+	return rec, nil
 }
 
-// GetRecordVersions возвращает версии записи
+// GetRecordVersions возвращает версии записи из record_versions
 func (r *SyncRepository) GetRecordVersions(ctx context.Context, recordID int, limit int) ([]*sync.RecordSync, error) {
 	query := `
-		SELECT id, user_id, type, metadata, data, version, deleted, created_at, updated_at
-		FROM records
-		WHERE id = $1
-		ORDER BY version DESC
+		SELECT rv.id, r.user_id, r.type, rv.encrypted_data, rv.meta, rv.version, 
+		       rv.created_at as last_modified, NULL as deleted_at, rv.checksum, r.device_id
+		FROM record_versions rv
+		JOIN records r ON rv.record_id = r.id
+		WHERE rv.record_id = $1
+		ORDER BY rv.version DESC
 		LIMIT $2
 	`
 
@@ -353,67 +292,47 @@ func (r *SyncRepository) GetRecordVersions(ctx context.Context, recordID int, li
 
 	var versions []*sync.RecordSync
 	for rows.Next() {
-		var rec sync.RecordSync
-		var metadataJSON string
-
-		err := rows.Scan(
-			&rec.ID,
-			&rec.UserID,
-			&rec.Type,
-			&metadataJSON,
-			&rec.Data,
-			&rec.Version,
-			&rec.Deleted,
-			&rec.CreatedAt,
-			&rec.UpdatedAt,
-		)
-
+		rec, err := r.scanRecordSync(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan record version: %w", err)
 		}
-
-		// Парсим метаданные
-		if err := json.Unmarshal([]byte(metadataJSON), &rec.Metadata); err != nil {
-			return nil, fmt.Errorf("failed to parse metadata: %w", err)
-		}
-
-		versions = append(versions, &rec)
+		versions = append(versions, rec)
 	}
 
 	return versions, nil
 }
 
-// SaveRecord сохраняет запись
+// SaveRecord сохраняет запись (используем реальную схему records)
 func (r *SyncRepository) SaveRecord(ctx context.Context, record *sync.RecordSync) error {
-	metadataJSON, err := json.Marshal(record.Metadata)
+	data, err := hex.DecodeString(record.EncryptedData)
 	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
+		return fmt.Errorf("failed to decode encrypted data: %w", err)
 	}
 
 	query := `
-		INSERT INTO records (id, user_id, type, metadata, data, version, deleted, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (id) DO UPDATE SET
-			type = EXCLUDED.type,
-			metadata = EXCLUDED.metadata,
-			data = EXCLUDED.data,
+		INSERT INTO records (user_id, type, encrypted_data, meta, version, checksum, device_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (user_id, type, encrypted_data) 
+		WHERE deleted_at IS NULL
+		DO UPDATE SET
+			meta = EXCLUDED.meta,
 			version = EXCLUDED.version,
-			deleted = EXCLUDED.deleted,
-			updated_at = EXCLUDED.updated_at
+			checksum = EXCLUDED.checksum,
+			device_id = EXCLUDED.device_id,
+			last_modified = NOW()
 		WHERE records.version < EXCLUDED.version
+		RETURNING id, version, last_modified
 	`
 
-	_, err = r.db.Pool().Exec(ctx, query,
-		record.ID,
+	err = r.db.Pool().QueryRow(ctx, query,
 		record.UserID,
 		record.Type,
-		metadataJSON,
-		record.Data,
+		data,
+		record.Meta,
 		record.Version,
-		record.Deleted,
-		record.CreatedAt,
-		record.UpdatedAt,
-	)
+		record.Checksum,
+		record.DeviceID,
+	).Scan(&record.ID, &record.Version, &record.LastModified)
 
 	if err != nil {
 		return fmt.Errorf("failed to save record: %w", err)
@@ -517,9 +436,9 @@ func (r *SyncRepository) GetConflictByID(ctx context.Context, conflictID int) (*
 func (r *SyncRepository) SaveConflict(ctx context.Context, conflict *sync.Conflict) error {
 	query := `
 		INSERT INTO sync_conflicts 
-			(id, record_id, user_id, device_id, local_data, server_data, 
+			(record_id, user_id, device_id, local_data, server_data, 
 			 conflict_type, resolved, resolution, resolved_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (id) DO UPDATE SET
 			local_data = EXCLUDED.local_data,
 			server_data = EXCLUDED.server_data,
@@ -527,10 +446,10 @@ func (r *SyncRepository) SaveConflict(ctx context.Context, conflict *sync.Confli
 			resolution = EXCLUDED.resolution,
 			resolved_at = EXCLUDED.resolved_at,
 			updated_at = EXCLUDED.updated_at
+		RETURNING id
 	`
 
-	_, err := r.db.Pool().Exec(ctx, query,
-		conflict.ID,
+	err := r.db.Pool().QueryRow(ctx, query,
 		conflict.RecordID,
 		conflict.UserID,
 		conflict.DeviceID,
@@ -542,7 +461,7 @@ func (r *SyncRepository) SaveConflict(ctx context.Context, conflict *sync.Confli
 		conflict.ResolvedAt,
 		conflict.CreatedAt,
 		conflict.UpdatedAt,
-	)
+	).Scan(&conflict.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to save conflict: %w", err)
@@ -576,9 +495,9 @@ func (r *SyncRepository) ResolveConflict(ctx context.Context, conflictID int, re
 	if conflictType == "version_mismatch" && resolvedData != nil {
 		_, err := tx.Exec(ctx, `
 			UPDATE records 
-			SET data = $1, version = version + 1, updated_at = $2
-			WHERE id = $3 AND user_id = $4
-		`, resolvedData, time.Now(), recordID, userID)
+			SET encrypted_data = $1, version = version + 1, last_modified = NOW()
+			WHERE id = $2 AND user_id = $3
+		`, resolvedData, recordID, userID)
 		if err != nil {
 			return fmt.Errorf("failed to update record: %w", err)
 		}
@@ -609,24 +528,25 @@ func (r *SyncRepository) BatchUpsertRecords(ctx context.Context, records []*sync
 	var failedIDs []int
 
 	for _, rec := range records {
-		metadataJSON, err := json.Marshal(rec.Metadata)
+		data, err := hex.DecodeString(rec.EncryptedData)
 		if err != nil {
 			failedIDs = append(failedIDs, rec.ID)
 			continue
 		}
 
 		_, err = tx.Exec(ctx, `
-		INSERT INTO records (id, user_id, type, metadata, data, version, deleted, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (id) DO UPDATE SET
-			type = EXCLUDED.type,
-			metadata = EXCLUDED.metadata,
-			data = EXCLUDED.data,
+		INSERT INTO records (user_id, type, encrypted_data, meta, version, checksum, device_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (user_id, type, encrypted_data) 
+		WHERE deleted_at IS NULL
+		DO UPDATE SET
+			meta = EXCLUDED.meta,
 			version = EXCLUDED.version,
-			deleted = EXCLUDED.deleted,
-			updated_at = EXCLUDED.updated_at
+			checksum = EXCLUDED.checksum,
+			device_id = EXCLUDED.device_id,
+			last_modified = NOW()
 		WHERE records.version < EXCLUDED.version
-		`, rec.ID, rec.UserID, rec.Type, metadataJSON, rec.Data, rec.Version, rec.Deleted, rec.CreatedAt, rec.UpdatedAt)
+		`, rec.UserID, rec.Type, data, rec.Meta, rec.Version, rec.Checksum, rec.DeviceID)
 
 		if err != nil {
 			failedIDs = append(failedIDs, rec.ID)
@@ -651,7 +571,7 @@ func getAllIDs(records []*sync.RecordSync) []int {
 	return ids
 }
 
-// BatchDeleteRecords массовое удаление записей
+// BatchDeleteRecords массовое удаление записей (soft delete)
 func (r *SyncRepository) BatchDeleteRecords(ctx context.Context, recordIDs []int, userID int) error {
 	if len(recordIDs) == 0 {
 		return nil
@@ -659,21 +579,20 @@ func (r *SyncRepository) BatchDeleteRecords(ctx context.Context, recordIDs []int
 
 	// Создаем плейсхолдеры для IN clause
 	placeholders := make([]string, len(recordIDs))
-	args := make([]interface{}, len(recordIDs)+1)
+	args := make([]interface{}, len(recordIDs)+2)
 	args[0] = userID
+	args[1] = time.Now()
 
 	for i, id := range recordIDs {
-		placeholders[i] = fmt.Sprintf("$%d", i+2)
-		args[i+1] = id
+		placeholders[i] = fmt.Sprintf("$%d", i+3)
+		args[i+2] = id
 	}
 
 	query := fmt.Sprintf(`
 		UPDATE records 
-		SET deleted = true, updated_at = $%d 
+		SET deleted_at = $2, last_modified = $2
 		WHERE user_id = $1 AND id IN (%s)
-	`, len(recordIDs)+2, strings.Join(placeholders, ","))
-
-	args = append(args, time.Now())
+	`, strings.Join(placeholders, ","))
 
 	_, err := r.db.Pool().Exec(ctx, query, args...)
 	if err != nil {
@@ -683,121 +602,10 @@ func (r *SyncRepository) BatchDeleteRecords(ctx context.Context, recordIDs []int
 	return nil
 }
 
-// GetSyncStats возвращает статистику синхронизации
+// GetSyncStats возвращает статистику синхронизации (заглушка, т.к. таблица удалена)
 func (r *SyncRepository) GetSyncStats(ctx context.Context, userID int) (*sync.SyncStats, error) {
-	query := `
-		SELECT user_id, total_syncs, last_sync, total_uploads, 
-		       total_downloads, total_conflicts, total_resolved, 
-		       avg_sync_duration, updated_at
-		FROM sync_stats
-		WHERE user_id = $1
-	`
-
-	var stats sync.SyncStats
-	var lastSync sql.NullTime
-
-	err := r.db.Pool().QueryRow(ctx, query, userID).Scan(
-		&stats.UserID,
-		&stats.TotalSyncs,
-		&lastSync,
-		&stats.TotalUploads,
-		&stats.TotalDownloads,
-		&stats.TotalConflicts,
-		&stats.TotalResolved,
-		&stats.AvgSyncDuration,
-		&stats.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// Создаем начальную статистику
-			return r.createInitialSyncStats(ctx, userID)
-		}
-		return nil, fmt.Errorf("failed to get sync stats: %w", err)
-	}
-
-	if lastSync.Valid {
-		stats.LastSync = lastSync.Time
-	}
-
-	return &stats, nil
-}
-
-// IncrementSyncStats увеличивает статистику синхронизации
-func (r *SyncRepository) IncrementSyncStats(ctx context.Context, userID int, uploads, downloads int64) error {
-	query := `
-		INSERT INTO sync_stats (user_id, total_syncs, total_uploads, total_downloads, updated_at)
-		VALUES ($1, 1, $2, $3, $4)
-		ON CONFLICT (user_id) DO UPDATE SET
-			total_syncs = sync_stats.total_syncs + 1,
-			total_uploads = sync_stats.total_uploads + EXCLUDED.total_uploads,
-			total_downloads = sync_stats.total_downloads + EXCLUDED.total_downloads,
-			last_sync = EXCLUDED.updated_at,
-			updated_at = EXCLUDED.updated_at
-	`
-
-	_, err := r.db.Pool().Exec(ctx, query,
-		userID,
-		uploads,
-		downloads,
-		time.Now(),
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to increment sync stats: %w", err)
-	}
-
-	return nil
-}
-
-// RecordSyncDuration записывает время синхронизации
-func (r *SyncRepository) RecordSyncDuration(ctx context.Context, userID int, duration time.Duration) error {
-	query := `
-		UPDATE sync_stats
-		SET avg_sync_duration = 
-			CASE 
-				WHEN total_syncs = 1 THEN $1
-				ELSE (avg_sync_duration * (total_syncs - 1) + $1) / total_syncs
-			END,
-			updated_at = $2
-		WHERE user_id = $3
-	`
-
-	_, err := r.db.Pool().Exec(ctx, query,
-		duration.Seconds(),
-		time.Now(),
-		userID,
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to record sync duration: %w", err)
-	}
-
-	return nil
-}
-
-// Вспомогательные методы
-
-func (r *SyncRepository) createInitialSyncStatus(ctx context.Context, userID int) (*sync.SyncStatus, error) {
-	status := &sync.SyncStatus{
-		UserID:       userID,
-		LastSyncTime: time.Time{},
-		TotalRecords: 0,
-		DeviceCount:  0,
-		StorageUsed:  0,
-		StorageLimit: 100 * 1024 * 1024, // 100 MB
-		SyncVersion:  0,
-	}
-
-	if err := r.UpdateSyncStatus(ctx, status); err != nil {
-		return nil, fmt.Errorf("failed to create initial sync status: %w", err)
-	}
-
-	return status, nil
-}
-
-func (r *SyncRepository) createInitialSyncStats(ctx context.Context, userID int) (*sync.SyncStats, error) {
-	stats := &sync.SyncStats{
+	// Возвращаем пустую статистику
+	return &sync.SyncStats{
 		UserID:          userID,
 		TotalSyncs:      0,
 		LastSync:        time.Time{},
@@ -807,30 +615,54 @@ func (r *SyncRepository) createInitialSyncStats(ctx context.Context, userID int)
 		TotalResolved:   0,
 		AvgSyncDuration: 0,
 		UpdatedAt:       time.Now(),
-	}
+	}, nil
+}
 
-	query := `
-		INSERT INTO sync_stats 
-		(user_id, total_syncs, last_sync, total_uploads, total_downloads, 
-		 total_conflicts, total_resolved, avg_sync_duration, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`
+// IncrementSyncStats увеличивает статистику синхронизации (заглушка)
+func (r *SyncRepository) IncrementSyncStats(ctx context.Context, userID int, uploads, downloads int64) error {
+	// Таблица удалена, ничего не делаем
+	r.log.Debug("IncrementSyncStats called but sync_stats table removed", "user_id", userID)
+	return nil
+}
 
-	_, err := r.db.Pool().Exec(ctx, query,
-		stats.UserID,
-		stats.TotalSyncs,
-		stats.LastSync,
-		stats.TotalUploads,
-		stats.TotalDownloads,
-		stats.TotalConflicts,
-		stats.TotalResolved,
-		stats.AvgSyncDuration,
-		stats.UpdatedAt,
+// RecordSyncDuration записывает время синхронизации (заглушка)
+func (r *SyncRepository) RecordSyncDuration(ctx context.Context, userID int, duration time.Duration) error {
+	// Таблица удалена, ничего не делаем
+	r.log.Debug("RecordSyncDuration called but sync_stats table removed", "user_id", userID)
+	return nil
+}
+
+// Вспомогательные методы
+
+// scanRecordSync сканирует RecordSync из row
+func (r *SyncRepository) scanRecordSync(row interface {
+	Scan(dest ...interface{}) error
+}) (*sync.RecordSync, error) {
+	var rec sync.RecordSync
+	var data []byte
+	var deletedAt sql.NullTime
+
+	err := row.Scan(
+		&rec.ID,
+		&rec.UserID,
+		&rec.Type,
+		&data,
+		&rec.Meta,
+		&rec.Version,
+		&rec.LastModified,
+		&deletedAt,
+		&rec.Checksum,
+		&rec.DeviceID,
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create initial sync stats: %w", err)
+		return nil, err
 	}
 
-	return stats, nil
+	rec.EncryptedData = hex.EncodeToString(data)
+	if deletedAt.Valid {
+		rec.DeletedAt = &deletedAt.Time
+	}
+
+	return &rec, nil
 }

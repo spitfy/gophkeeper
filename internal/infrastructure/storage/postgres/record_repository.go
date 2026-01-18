@@ -6,10 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	"golang.org/x/exp/slog"
 	"gophkeeper/internal/domain/record"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/exp/slog"
 )
 
 type RecordRepository struct {
@@ -96,13 +97,13 @@ func (r *RecordRepository) Create(ctx context.Context, rec *record.Record) (int,
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, version, last_modified`
 
-	/*data, err := hex.DecodeString(record.EncryptedData)
+	data, err := hex.DecodeString(rec.EncryptedData)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", ErrInvalidData, err)
-	}*/
+		return 0, fmt.Errorf("%w: %v", record.ErrInvalidData, err)
+	}
 
-	err := r.db.Pool().QueryRow(ctx, query,
-		rec.UserID, rec.Type, rec.EncryptedData, rec.Meta, rec.Checksum, rec.DeviceID,
+	err = r.db.Pool().QueryRow(ctx, query,
+		rec.UserID, rec.Type, data, rec.Meta, rec.Checksum, rec.DeviceID,
 	).Scan(&rec.ID, &rec.Version, &rec.LastModified)
 
 	if err != nil {

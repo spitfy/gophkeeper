@@ -17,17 +17,19 @@ type SyncStatus struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// RecordSync запись для синхронизации
+// RecordSync запись для синхронизации (соответствует схеме таблицы records)
+// JSON tags используют snake_case для совместимости с API
 type RecordSync struct {
-	ID        int               `json:"id"`
-	UserID    int               `json:"user_id"`
-	Type      string            `json:"type"`
-	Metadata  map[string]string `json:"metadata"`
-	Data      []byte            `json:"data"`
-	Version   int               `json:"version"`
-	Deleted   bool              `json:"deleted"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID            int        `json:"id"`
+	UserID        int        `json:"user_id"`
+	Type          string     `json:"type"`
+	EncryptedData string     `json:"encrypted_data"` // hex-encoded, в БД: encrypted_data
+	Meta          []byte     `json:"meta"`           // JSONB, в БД: meta
+	Version       int        `json:"version"`
+	LastModified  time.Time  `json:"last_modified"`        // в БД: last_modified
+	DeletedAt     *time.Time `json:"deleted_at,omitempty"` // в БД: deleted_at
+	Checksum      string     `json:"checksum,omitempty"`
+	DeviceID      string     `json:"device_id,omitempty"`
 }
 
 // DeviceInfo информация об устройстве

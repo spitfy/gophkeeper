@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"gophkeeper/internal/app/server/api/http/middleware/auth"
 	"time"
@@ -149,7 +150,7 @@ func (s *Service) ProcessBatch(ctx context.Context, req BatchSyncRequest) (*Batc
 	// Рассчитываем общий размер добавляемых данных
 	var totalSize int64
 	for _, rec := range req.Records {
-		totalSize += int64(len(rec.Data))
+		totalSize += int64(len(rec.EncryptedData))
 	}
 
 	if status.StorageUsed+totalSize > s.config.StorageLimit {
@@ -240,7 +241,11 @@ func (s *Service) ResolveConflict(ctx context.Context, conflictID int, req Resol
 	// Разрешаем конфликт
 	resolvedData := []byte{}
 	if req.ResolvedData != nil {
-		resolvedData = req.ResolvedData.Data
+		// Декодируем hex-строку в байты
+		data, err := hex.DecodeString(req.ResolvedData.EncryptedData)
+		if err == nil {
+			resolvedData = data
+		}
 	}
 	if err := s.repo.ResolveConflict(ctx, conflictID, req.Resolution, resolvedData); err != nil {
 		return nil, fmt.Errorf("failed to resolve conflict: %w", err)
@@ -335,8 +340,8 @@ func (s *Service) handleConflict(ctx context.Context, userID int, local, server 
 		RecordID:     local.ID,
 		UserID:       userID,
 		DeviceID:     0, // TODO: нужно получать из контекста устройства
-		LocalData:    local.Data,
-		ServerData:   server.Data,
+		LocalData:    []byte(local.EncryptedData),
+		ServerData:   []byte(server.EncryptedData),
 		ConflictType: "version_mismatch",
 		CreatedAt:    time.Now(),
 	}

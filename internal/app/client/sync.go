@@ -340,20 +340,15 @@ func (s *SyncService) getServerChanges(ctx context.Context, meta *SyncMetadata) 
 			UserID:       syncRec.UserID,
 			Type:         record.RecType(syncRec.Type),
 			Version:      syncRec.Version,
-			LastModified: syncRec.UpdatedAt,
-			CreatedAt:    syncRec.CreatedAt,
+			LastModified: syncRec.LastModified,
 			Synced:       true,
 		}
-		if syncRec.Deleted {
-			now := time.Now()
-			localRec.DeletedAt = &now
+		if syncRec.DeletedAt != nil {
+			localRec.DeletedAt = syncRec.DeletedAt
 		}
-		// Конвертируем metadata map в JSON
-		if syncRec.Metadata != nil {
-			metaJSON, _ := json.Marshal(syncRec.Metadata)
-			localRec.Meta = metaJSON
-		}
-		localRec.EncryptedData = string(syncRec.Data)
+		// Используем Meta напрямую
+		localRec.Meta = syncRec.Meta
+		localRec.EncryptedData = syncRec.EncryptedData
 		records = append(records, localRec)
 	}
 
@@ -575,22 +570,21 @@ func (s *SyncService) uploadChanges(ctx context.Context, changes []*LocalRecord)
 	// Конвертируем локальные записи в формат для batch sync
 	var syncRecords []sync.RecordSync
 	for _, rec := range changes {
+		// Правильный маппинг полей согласно RecordSync модели
 		syncRec := sync.RecordSync{
-			ID:        rec.ServerID,
-			UserID:    rec.UserID,
-			Type:      string(rec.Type),
-			Version:   rec.Version,
-			Deleted:   rec.DeletedAt != nil,
-			CreatedAt: rec.CreatedAt,
-			UpdatedAt: rec.LastModified,
-			Data:      []byte(rec.EncryptedData),
+			ID:            rec.ServerID,      // ID на сервере
+			UserID:        rec.UserID,        // ID пользователя
+			Type:          string(rec.Type),  // Тип записи
+			EncryptedData: rec.EncryptedData, // encrypted_data (не data!)
+			Meta:          rec.Meta,          // meta (не metadata!)
+			Version:       rec.Version,       // Версия
+			LastModified:  rec.LastModified,  // last_modified (не created_at/updated_at!)
+			Checksum:      rec.Checksum,      // Контрольная сумма
+			DeviceID:      rec.DeviceID,      // ID устройства
 		}
-		// Конвертируем Meta в map
-		if rec.Meta != nil {
-			var metaMap map[string]string
-			if err := json.Unmarshal(rec.Meta, &metaMap); err == nil {
-				syncRec.Metadata = metaMap
-			}
+		// DeletedAt опциональное поле
+		if rec.DeletedAt != nil {
+			syncRec.DeletedAt = rec.DeletedAt
 		}
 		syncRecords = append(syncRecords, syncRec)
 	}

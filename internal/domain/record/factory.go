@@ -1,6 +1,7 @@
 package record
 
 import (
+	"encoding/hex"
 	"fmt"
 )
 
@@ -114,9 +115,12 @@ func (f *RecordFactory) PrepareRecord(typ RecType, data RecordData, meta MetaDat
 		return nil, fmt.Errorf("failed to marshal meta: %w", err)
 	}
 
+	// Конвертируем JSON в hex-строку для совместимости с БД
+	encryptedData := hex.EncodeToString(dataJSON)
+
 	record := &Record{
 		Type:          typ,
-		EncryptedData: string(dataJSON), // В реальности здесь будет зашифрованная строка
+		EncryptedData: encryptedData,
 		Meta:          metaJSON,
 		Version:       1,
 	}

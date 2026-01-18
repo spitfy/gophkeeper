@@ -85,6 +85,7 @@ func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
 	syncRepo := postgres.NewSyncRepository(storage, log)
 	syncService := sync.NewService(syncRepo, log, nil)
 	middlewares.Add(authMW.Middleware())
+	middlewares.Add(loggerMW.Middleware())
 	syncHandler := syncAPI.NewHandler(syncService, log, middlewares.GetAllAndClear())
 
 	return &Handlers{

@@ -87,17 +87,3 @@ type SyncStatsBrief struct {
 	TotalConflicts  int     `json:"total_conflicts"`
 	TotalResolved   int     `json:"total_resolved"`
 }
-
-// SyncRecordDTO упрощенная версия RecordSync для API
-// Note: Вместо создания отдельной структуры, можно использовать RecordSync
-// но если нужны отличия, создаем DTO
-type SyncRecordDTO struct {
-	ID        int               `json:"id"`
-	Type      string            `json:"type" enum:"password,note,card,file"`
-	Metadata  map[string]string `json:"metadata"`
-	Data      []byte            `json:"data"`
-	Version   int               `json:"version"`
-	Deleted   bool              `json:"deleted,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
-}

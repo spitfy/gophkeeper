@@ -222,6 +222,15 @@ func (a *App) IsMasterKeyUnlocked() bool {
 	return !a.crypto.IsLocked()
 }
 
+// LockMasterKey блокирует мастер-ключ
+func (a *App) LockMasterKey() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.crypto.Lock()
+	a.masterKeyReady = false
+}
+
 // HasLocalData проверяет наличие локальных данных
 func (a *App) HasLocalData() bool {
 	count, err := a.storage.CountRecords()
