@@ -570,15 +570,15 @@ func (s *SyncService) uploadChanges(ctx context.Context, changes []*LocalRecord)
 	// Конвертируем локальные записи в формат для batch sync
 	var syncRecords []sync.RecordSync
 	for _, rec := range changes {
-		// Правильный маппинг полей согласно RecordSync модели
+		// Данные уже зашифрованы на клиенте, просто передаем их
 		syncRec := sync.RecordSync{
 			ID:            rec.ServerID,      // ID на сервере
 			UserID:        rec.UserID,        // ID пользователя
 			Type:          string(rec.Type),  // Тип записи
-			EncryptedData: rec.EncryptedData, // encrypted_data (не data!)
-			Meta:          rec.Meta,          // meta (не metadata!)
+			EncryptedData: rec.EncryptedData, // Зашифрованные данные
+			Meta:          rec.Meta,          // Метаданные (не шифруются для поиска)
 			Version:       rec.Version,       // Версия
-			LastModified:  rec.LastModified,  // last_modified (не created_at/updated_at!)
+			LastModified:  rec.LastModified,  // Время последнего изменения
 			Checksum:      rec.Checksum,      // Контрольная сумма
 			DeviceID:      rec.DeviceID,      // ID устройства
 		}

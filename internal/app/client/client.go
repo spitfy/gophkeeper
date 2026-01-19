@@ -379,11 +379,6 @@ func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 	return token, nil
 }
 
-// ChangePassword изменяет пароль пользователя
-// TODO: Реализовать на сервере эндпоинт /user/change-password
-// func (a *App) ChangePassword(ctx context.Context, req user.ChangePasswordRequest) error {
-// }
-
 func (a *App) reencryptLocalData(newMasterPassword string) error {
 	// Получаем все записи
 	records, err := a.storage.ListRecords(&RecordFilter{})
@@ -417,33 +412,17 @@ func (a *App) reencryptLocalData(newMasterPassword string) error {
 
 // ==================== Record Operations ====================
 
-// CreateLoginRecord создает запись логина
+// CreateLoginRecord создает запись логина с шифрованием
 func (a *App) CreateLoginRecord(ctx context.Context, req CreateLoginRequest) (int, error) {
-	// Проверяем аутентификацию
 	if !a.IsAuthenticated() {
 		return 0, fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
 	}
 
-	// Создаем запись на сервере
-	serverID, err := a.httpClient.CreateLoginRecord(ctx, req)
-	if err != nil {
-		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
-		// Сохраняем локально без синхронизации
-		return a.saveLocalRecord(record.RecTypeLogin, req)
+	if !a.IsMasterKeyUnlocked() {
+		return 0, fmt.Errorf("мастер-ключ заблокирован. Выполните: gophkeeper unlock")
 	}
 
-	// Сохраняем локально с привязкой к серверу
-	localRec := &LocalRecord{
-		ServerID:     serverID,
-		Type:         record.RecTypeLogin,
-		Version:      1,
-		LastModified: time.Now(),
-		CreatedAt:    time.Now(),
-		Synced:       true,
-		DeviceID:     req.DeviceID,
-	}
-
-	// Сериализуем данные в Meta
+	// Подготавливаем метаданные (не шифруем для поиска)
 	meta := map[string]interface{}{
 		"title":    req.Title,
 		"resource": req.Resource,
@@ -451,7 +430,32 @@ func (a *App) CreateLoginRecord(ctx context.Context, req CreateLoginRequest) (in
 		"tags":     req.Tags,
 	}
 	metaJSON, _ := json.Marshal(meta)
-	localRec.Meta = metaJSON
+
+	// Подготавливаем зашифрованную запись
+	encryptedReq, err := a.prepareEncryptedRecord(record.RecTypeLogin, req, metaJSON)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка подготовки зашифрованной записи: %w", err)
+	}
+
+	// Отправляем на сервер через generic API
+	serverID, err := a.httpClient.CreateRecord(ctx, encryptedReq)
+	if err != nil {
+		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
+		return a.saveLocalRecord(record.RecTypeLogin, req)
+	}
+
+	// Сохраняем локально
+	localRec := &LocalRecord{
+		ServerID:      serverID,
+		Type:          record.RecTypeLogin,
+		EncryptedData: encryptedReq.Data,
+		Meta:          metaJSON,
+		Version:       1,
+		LastModified:  time.Now(),
+		CreatedAt:     time.Now(),
+		Synced:        true,
+		DeviceID:      req.DeviceID,
+	}
 
 	if err := a.storage.SaveRecord(localRec); err != nil {
 		a.log.Warn("Не удалось сохранить запись локально", "error", err)
@@ -463,28 +467,17 @@ func (a *App) CreateLoginRecord(ctx context.Context, req CreateLoginRequest) (in
 	return serverID, nil
 }
 
-// CreateTextRecord создает текстовую запись
+// CreateTextRecord создает текстовую запись с шифрованием
 func (a *App) CreateTextRecord(ctx context.Context, req CreateTextRequest) (int, error) {
 	if !a.IsAuthenticated() {
 		return 0, fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
 	}
 
-	serverID, err := a.httpClient.CreateTextRecord(ctx, req)
-	if err != nil {
-		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
-		return a.saveLocalRecord(record.RecTypeText, req)
+	if !a.IsMasterKeyUnlocked() {
+		return 0, fmt.Errorf("мастер-ключ заблокирован. Выполните: gophkeeper unlock")
 	}
 
-	localRec := &LocalRecord{
-		ServerID:     serverID,
-		Type:         record.RecTypeText,
-		Version:      1,
-		LastModified: time.Now(),
-		CreatedAt:    time.Now(),
-		Synced:       true,
-		DeviceID:     req.DeviceID,
-	}
-
+	// Подготавливаем метаданные
 	meta := map[string]interface{}{
 		"title":    req.Title,
 		"category": req.Category,
@@ -492,7 +485,32 @@ func (a *App) CreateTextRecord(ctx context.Context, req CreateTextRequest) (int,
 		"format":   req.Format,
 	}
 	metaJSON, _ := json.Marshal(meta)
-	localRec.Meta = metaJSON
+
+	// Подготавливаем зашифрованную запись
+	encryptedReq, err := a.prepareEncryptedRecord(record.RecTypeText, req, metaJSON)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка подготовки зашифрованной записи: %w", err)
+	}
+
+	// Отправляем на сервер
+	serverID, err := a.httpClient.CreateRecord(ctx, encryptedReq)
+	if err != nil {
+		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
+		return a.saveLocalRecord(record.RecTypeText, req)
+	}
+
+	// Сохраняем локально
+	localRec := &LocalRecord{
+		ServerID:      serverID,
+		Type:          record.RecTypeText,
+		EncryptedData: encryptedReq.Data,
+		Meta:          metaJSON,
+		Version:       1,
+		LastModified:  time.Now(),
+		CreatedAt:     time.Now(),
+		Synced:        true,
+		DeviceID:      req.DeviceID,
+	}
 
 	if err := a.storage.SaveRecord(localRec); err != nil {
 		a.log.Warn("Не удалось сохранить запись локально", "error", err)
@@ -504,28 +522,17 @@ func (a *App) CreateTextRecord(ctx context.Context, req CreateTextRequest) (int,
 	return serverID, nil
 }
 
-// CreateCardRecord создает запись карты
+// CreateCardRecord создает запись карты с шифрованием
 func (a *App) CreateCardRecord(ctx context.Context, req CreateCardRequest) (int, error) {
 	if !a.IsAuthenticated() {
 		return 0, fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
 	}
 
-	serverID, err := a.httpClient.CreateCardRecord(ctx, req)
-	if err != nil {
-		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
-		return a.saveLocalRecord(record.RecTypeCard, req)
+	if !a.IsMasterKeyUnlocked() {
+		return 0, fmt.Errorf("мастер-ключ заблокирован. Выполните: gophkeeper unlock")
 	}
 
-	localRec := &LocalRecord{
-		ServerID:     serverID,
-		Type:         record.RecTypeCard,
-		Version:      1,
-		LastModified: time.Now(),
-		CreatedAt:    time.Now(),
-		Synced:       true,
-		DeviceID:     req.DeviceID,
-	}
-
+	// Подготавливаем метаданные
 	meta := map[string]interface{}{
 		"title":     req.Title,
 		"bank_name": req.BankName,
@@ -533,7 +540,32 @@ func (a *App) CreateCardRecord(ctx context.Context, req CreateCardRequest) (int,
 		"tags":      req.Tags,
 	}
 	metaJSON, _ := json.Marshal(meta)
-	localRec.Meta = metaJSON
+
+	// Подготавливаем зашифрованную запись
+	encryptedReq, err := a.prepareEncryptedRecord(record.RecTypeCard, req, metaJSON)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка подготовки зашифрованной записи: %w", err)
+	}
+
+	// Отправляем на сервер
+	serverID, err := a.httpClient.CreateRecord(ctx, encryptedReq)
+	if err != nil {
+		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
+		return a.saveLocalRecord(record.RecTypeCard, req)
+	}
+
+	// Сохраняем локально
+	localRec := &LocalRecord{
+		ServerID:      serverID,
+		Type:          record.RecTypeCard,
+		EncryptedData: encryptedReq.Data,
+		Meta:          metaJSON,
+		Version:       1,
+		LastModified:  time.Now(),
+		CreatedAt:     time.Now(),
+		Synced:        true,
+		DeviceID:      req.DeviceID,
+	}
 
 	if err := a.storage.SaveRecord(localRec); err != nil {
 		a.log.Warn("Не удалось сохранить запись локально", "error", err)
@@ -545,28 +577,17 @@ func (a *App) CreateCardRecord(ctx context.Context, req CreateCardRequest) (int,
 	return serverID, nil
 }
 
-// CreateBinaryRecord создает бинарную запись
+// CreateBinaryRecord создает бинарную запись с шифрованием
 func (a *App) CreateBinaryRecord(ctx context.Context, req CreateBinaryRequest) (int, error) {
 	if !a.IsAuthenticated() {
 		return 0, fmt.Errorf("требуется аутентификация. Выполните: gophkeeper auth login")
 	}
 
-	serverID, err := a.httpClient.CreateBinaryRecord(ctx, req)
-	if err != nil {
-		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
-		return a.saveLocalRecord(record.RecTypeBinary, req)
+	if !a.IsMasterKeyUnlocked() {
+		return 0, fmt.Errorf("мастер-ключ заблокирован. Выполните: gophkeeper unlock")
 	}
 
-	localRec := &LocalRecord{
-		ServerID:     serverID,
-		Type:         record.RecTypeBinary,
-		Version:      1,
-		LastModified: time.Now(),
-		CreatedAt:    time.Now(),
-		Synced:       true,
-		DeviceID:     req.DeviceID,
-	}
-
+	// Подготавливаем метаданные
 	meta := map[string]interface{}{
 		"title":       req.Title,
 		"filename":    req.Filename,
@@ -575,7 +596,32 @@ func (a *App) CreateBinaryRecord(ctx context.Context, req CreateBinaryRequest) (
 		"description": req.Description,
 	}
 	metaJSON, _ := json.Marshal(meta)
-	localRec.Meta = metaJSON
+
+	// Подготавливаем зашифрованную запись
+	encryptedReq, err := a.prepareEncryptedRecord(record.RecTypeBinary, req, metaJSON)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка подготовки зашифрованной записи: %w", err)
+	}
+
+	// Отправляем на сервер
+	serverID, err := a.httpClient.CreateRecord(ctx, encryptedReq)
+	if err != nil {
+		a.log.Warn("Не удалось создать запись на сервере, сохраняем локально", "error", err)
+		return a.saveLocalRecord(record.RecTypeBinary, req)
+	}
+
+	// Сохраняем локально
+	localRec := &LocalRecord{
+		ServerID:      serverID,
+		Type:          record.RecTypeBinary,
+		EncryptedData: encryptedReq.Data,
+		Meta:          metaJSON,
+		Version:       1,
+		LastModified:  time.Now(),
+		CreatedAt:     time.Now(),
+		Synced:        true,
+		DeviceID:      req.DeviceID,
+	}
 
 	if err := a.storage.SaveRecord(localRec); err != nil {
 		a.log.Warn("Не удалось сохранить запись локально", "error", err)
@@ -625,7 +671,7 @@ func (a *App) saveLocalRecord(recType record.RecType, data interface{}) (int, er
 	return localRec.ID, nil
 }
 
-// GetRecord возвращает запись по ID
+// GetRecord возвращает запись по ID с расшифровкой
 func (a *App) GetRecord(ctx context.Context, id int) (*LocalRecord, error) {
 	// Пытаемся получить из локального хранилища
 	localRec, err := a.storage.GetRecord(id)
@@ -649,6 +695,22 @@ func (a *App) GetRecord(ctx context.Context, id int) (*LocalRecord, error) {
 	}
 
 	return localRec, nil
+}
+
+// GetDecryptedRecord возвращает расшифрованную запись
+func (a *App) GetDecryptedRecord(ctx context.Context, id int) (interface{}, error) {
+	localRec, err := a.GetRecord(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Расшифровываем данные
+	var decryptedData interface{}
+	if err := a.decryptRecordData(localRec.EncryptedData, &decryptedData); err != nil {
+		return nil, fmt.Errorf("ошибка расшифровки данных: %w", err)
+	}
+
+	return decryptedData, nil
 }
 
 // ListRecords возвращает список записей

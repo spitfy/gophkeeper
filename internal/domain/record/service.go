@@ -105,8 +105,9 @@ type TypeStats struct {
 // NewService creates a new record service
 func NewService(repo Repository, factory *RecordFactory, log *slog.Logger) Servicer {
 	return &Service{
-		repo: repo,
-		log:  log.With("component", "record_service"),
+		repo:    repo,
+		factory: factory,
+		log:     log.With("component", "record_service"),
 	}
 }
 
@@ -154,7 +155,7 @@ func (s *Service) Create(ctx context.Context, userID int, typ RecType, encrypted
 
 	recordID, err := s.repo.Create(ctx, record)
 	if err != nil {
-		s.log.Error("failed to create record", "user_id", userID, "type", typ, "error", err)
+		s.log.Error("failed to create record", "user_id", userID, "type", typ, "error", err.Error())
 		return -1, fmt.Errorf("create record: %w", err)
 	}
 
@@ -509,7 +510,7 @@ func (s *Service) CreateWithModels(
 	// Сохранение в БД
 	recordID, err := s.repo.Create(ctx, record)
 	if err != nil {
-		s.log.Error("failed to create record", "user_id", userID, "type", typ, "error", err)
+		s.log.Error("failed to create record", "user_id", userID, "type", typ, "error", err.Error())
 		return -1, fmt.Errorf("create record: %w", err)
 	}
 
