@@ -34,6 +34,8 @@ type Servicer interface {
 	GetModifiedSince(ctx context.Context, userID int, since time.Time) ([]Record, error)
 	BatchCreate(ctx context.Context, userID int, records []CreateRequest) (BatchCreateResponse, error)
 	BatchUpdate(ctx context.Context, userID int, updates []UpdateRequest) (BatchUpdateResponse, error)
+	GetByType(ctx context.Context, userID int, recordType string) ([]Record, error)
+	GetVersions(ctx context.Context, userID, recordID int) ([]RecordVersion, error)
 
 	CreateWithModels(
 		ctx context.Context,
