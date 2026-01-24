@@ -71,7 +71,8 @@ func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
 	healthHandler := healthAPI.NewHandler(log, middlewares.GetAllAndClear())
 
 	userRepo := postgres.NewUserRepository(storage, log)
-	userService := user.NewService(userRepo, log)
+	userValidator := user.NewPasswordValidator()
+	userService := user.NewService(userRepo, userValidator, log)
 	middlewares.Add(loggerMW.Middleware())
 	userHandler := userAPI.NewHandler(userService, sessionService, log, middlewares.GetAllAndClear())
 
