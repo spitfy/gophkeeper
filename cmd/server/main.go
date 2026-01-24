@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/exp/slog"
 	"gophkeeper/internal/app/server/api"
 	"gophkeeper/internal/app/server/config"
-	"gophkeeper/internal/infrastructure/storage/postgres"
+	"gophkeeper/internal/infrastructure/migration"
 	"gophkeeper/internal/utils/logger"
 	"gophkeeper/internal/utils/logger/sl"
 	"net/http"
@@ -24,17 +25,23 @@ type Options struct {
 func main() {
 	cfg := config.MustLoad()
 	log := logger.New(cfg.Env)
-
-	storage, err := postgres.New(cfg)
+	pool, err := pgxpool.New(context.Background(), cfg.DB.DatabaseURI)
 	if err != nil {
 		log.Error("failed to init storage", sl.Err(err))
 		os.Exit(1)
 	}
-	defer storage.Close()
+	defer pool.Close()
+
+	mg := migration.NewMigration(cfg)
+	err = mg.Up()
+	if err != nil {
+		log.Error("failed to run migrations", sl.Err(err))
+		os.Exit(1)
+	}
 
 	log.Info("starting gophkeeper", slog.String("env", cfg.Env), slog.String("version", "1.0"))
 
-	router := api.New(storage, log)
+	router := api.New(pool, log)
 
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
 		server := &http.Server{

@@ -9,7 +9,7 @@ import (
 )
 
 type Storage struct {
-	db *pgxpool.Pool //todo rename pool
+	pool *pgxpool.Pool
 }
 
 func New(cfg *config.Config) (*Storage, error) {
@@ -22,14 +22,14 @@ func New(cfg *config.Config) (*Storage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("migration error: %w", err)
 	}
-	return &Storage{db: pool}, nil
+	return &Storage{pool: pool}, nil
 }
 
 func (s *Storage) Close() error {
-	s.db.Close()
+	s.pool.Close()
 	return nil
 }
 
 func (s *Storage) Pool() *pgxpool.Pool {
-	return s.db
+	return s.pool
 }

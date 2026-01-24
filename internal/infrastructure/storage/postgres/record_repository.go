@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"gophkeeper/internal/domain/record"
 	"time"
 
@@ -14,14 +15,14 @@ import (
 )
 
 type RecordRepository struct {
-	db  *Storage
-	log *slog.Logger
+	pool *pgxpool.Pool
+	log  *slog.Logger
 }
 
-func NewRecordRepository(db *Storage, log *slog.Logger) *RecordRepository {
+func NewRecordRepository(pool *pgxpool.Pool, log *slog.Logger) *RecordRepository {
 	return &RecordRepository{
-		db:  db,
-		log: log.With("component", "record_repository"),
+		pool: pool,
+		log:  log.With("component", "record_repository"),
 	}
 }
 
@@ -33,7 +34,7 @@ func (r *RecordRepository) List(ctx context.Context, userID int) ([]record.Recor
 		WHERE user_id = $1 AND deleted_at IS NULL 
 		ORDER BY last_modified DESC`
 
-	rows, err := r.db.Pool().Query(ctx, query, userID)
+	rows, err := r.pool.Query(ctx, query, userID)
 	if err != nil {
 		r.log.Error("failed to list records", "user_id", userID, "error", err)
 		return nil, fmt.Errorf("list records: %w", err)
@@ -50,7 +51,7 @@ func (r *RecordRepository) Get(ctx context.Context, userID, recordID int) (*reco
 		FROM records 
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`
 
-	row := r.db.Pool().QueryRow(ctx, query, recordID, userID)
+	row := r.pool.QueryRow(ctx, query, recordID, userID)
 
 	rec, err := r.scanRecord(row)
 	if err != nil {
@@ -76,7 +77,7 @@ func (r *RecordRepository) GetByChecksum(ctx context.Context, userID int, checks
 		FROM records 
 		WHERE checksum = $1 AND user_id = $2 AND deleted_at IS NULL`
 
-	row := r.db.Pool().QueryRow(ctx, query, checksum, userID)
+	row := r.pool.QueryRow(ctx, query, checksum, userID)
 
 	rec, err := r.scanRecord(row)
 	if err != nil {
@@ -102,7 +103,7 @@ func (r *RecordRepository) Create(ctx context.Context, rec *record.Record) (int,
 		return 0, fmt.Errorf("%w: %v", record.ErrInvalidData, err)
 	}
 
-	err = r.db.Pool().QueryRow(ctx, query,
+	err = r.pool.QueryRow(ctx, query,
 		rec.UserID, rec.Type, data, rec.Meta, rec.Checksum, rec.DeviceID,
 	).Scan(&rec.ID, &rec.Version, &rec.LastModified)
 
@@ -132,7 +133,7 @@ func (r *RecordRepository) Update(ctx context.Context, rec *record.Record) error
 	var newVersion int
 	var newLastModified time.Time
 
-	err = r.db.Pool().QueryRow(ctx, query,
+	err = r.pool.QueryRow(ctx, query,
 		rec.Type, data, rec.Meta, rec.Checksum, rec.DeviceID,
 		rec.ID, rec.UserID, rec.Version,
 	).Scan(&newVersion, &newLastModified)
@@ -154,7 +155,7 @@ func (r *RecordRepository) Update(ctx context.Context, rec *record.Record) error
 func (r *RecordRepository) Delete(ctx context.Context, userID, recordID int) error {
 	const query = `DELETE FROM records WHERE id = $1 AND user_id = $2`
 
-	result, err := r.db.Pool().Exec(ctx, query, recordID, userID)
+	result, err := r.pool.Exec(ctx, query, recordID, userID)
 	if err != nil {
 		r.log.Error("failed to delete record",
 			"record_id", recordID, "user_id", userID, "error", err)
@@ -174,7 +175,7 @@ func (r *RecordRepository) SoftDelete(ctx context.Context, userID, recordID int)
 		SET deleted_at = NOW(), version = version + 1
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`
 
-	result, err := r.db.Pool().Exec(ctx, query, recordID, userID)
+	result, err := r.pool.Exec(ctx, query, recordID, userID)
 	if err != nil {
 		r.log.Error("failed to soft delete record",
 			"record_id", recordID, "user_id", userID, "error", err)
@@ -229,7 +230,7 @@ func (r *RecordRepository) Search(ctx context.Context, userID int, criteria reco
 		}
 	}
 
-	rows, err := r.db.Pool().Query(ctx, query, args...)
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		r.log.Error("failed to search records", "criteria", criteria, "error", err)
 		return nil, fmt.Errorf("search records: %w", err)
@@ -251,7 +252,7 @@ func (r *RecordRepository) GetModifiedSince(ctx context.Context, userID int, sin
 		WHERE user_id = $1 AND last_modified > $2 AND deleted_at IS NULL
 		ORDER BY last_modified DESC`
 
-	rows, err := r.db.Pool().Query(ctx, query, userID, since)
+	rows, err := r.pool.Query(ctx, query, userID, since)
 	if err != nil {
 		r.log.Error("failed to get modified records",
 			"user_id", userID, "since", since, "error", err)
@@ -272,7 +273,7 @@ func (r *RecordRepository) GetStats(ctx context.Context, userID int) (map[string
 		WHERE user_id = $1 AND deleted_at IS NULL
 		GROUP BY type`
 
-	rows, err := r.db.Pool().Query(ctx, query, userID)
+	rows, err := r.pool.Query(ctx, query, userID)
 	if err != nil {
 		r.log.Error("failed to get stats", "user_id", userID, "error", err)
 		return nil, fmt.Errorf("get stats: %w", err)
@@ -319,7 +320,7 @@ func (r *RecordRepository) SaveVersion(ctx context.Context, version *record.Reco
 		return fmt.Errorf("decode encrypted data: %w", err)
 	}
 
-	_, err = r.db.Pool().Exec(ctx, query,
+	_, err = r.pool.Exec(ctx, query,
 		version.RecordID, version.Version, data, version.Meta, version.Checksum)
 
 	return err
@@ -332,7 +333,7 @@ func (r *RecordRepository) GetVersions(ctx context.Context, recordID int) ([]rec
 		WHERE record_id = $1
 		ORDER BY version DESC`
 
-	rows, err := r.db.Pool().Query(ctx, query, recordID)
+	rows, err := r.pool.Query(ctx, query, recordID)
 	if err != nil {
 		return nil, fmt.Errorf("get versions: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"strings"
 	"time"
 
@@ -15,15 +16,15 @@ import (
 
 // SyncRepository реализация репозитория синхронизации для PostgreSQL
 type SyncRepository struct {
-	db  *Storage
-	log *slog.Logger
+	pool *pgxpool.Pool
+	log  *slog.Logger
 }
 
 // NewSyncRepository создает новый репозиторий синхронизации
-func NewSyncRepository(db *Storage, log *slog.Logger) *SyncRepository {
+func NewSyncRepository(pool *pgxpool.Pool, log *slog.Logger) *SyncRepository {
 	return &SyncRepository{
-		db:  db,
-		log: log,
+		pool: pool,
+		log:  log,
 	}
 }
 
@@ -39,7 +40,7 @@ func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.S
 	var status sync.SyncStatus
 	var lastSyncTime sql.NullTime
 
-	err := r.db.Pool().QueryRow(ctx, query, userID).Scan(
+	err := r.pool.QueryRow(ctx, query, userID).Scan(
 		&status.UserID,
 		&lastSyncTime,
 		&status.TotalRecords,
@@ -90,7 +91,7 @@ func (r *SyncRepository) GetDeviceInfo(ctx context.Context, deviceID int) (*sync
 	var device sync.DeviceInfo
 	var lastSyncTime sql.NullTime
 
-	err := r.db.Pool().QueryRow(ctx, query, deviceID).Scan(
+	err := r.pool.QueryRow(ctx, query, deviceID).Scan(
 		&device.ID,
 		&device.UserID,
 		&device.Name,
@@ -130,7 +131,7 @@ func (r *SyncRepository) RegisterDevice(ctx context.Context, device *sync.Device
 			user_agent = EXCLUDED.user_agent
 	`
 
-	_, err := r.db.Pool().Exec(ctx, query,
+	_, err := r.pool.Exec(ctx, query,
 		device.ID,
 		device.UserID,
 		device.Name,
@@ -157,7 +158,7 @@ func (r *SyncRepository) UpdateDeviceSyncTime(ctx context.Context, deviceID int,
 		WHERE id = $3
 	`
 
-	_, err := r.db.Pool().Exec(ctx, query, syncTime, time.Now(), deviceID)
+	_, err := r.pool.Exec(ctx, query, syncTime, time.Now(), deviceID)
 	if err != nil {
 		return fmt.Errorf("failed to update device sync time: %w", err)
 	}
@@ -174,7 +175,7 @@ func (r *SyncRepository) ListUserDevices(ctx context.Context, userID int) ([]*sy
 		ORDER BY last_sync_time DESC
 	`
 
-	rows, err := r.db.Pool().Query(ctx, query, userID)
+	rows, err := r.pool.Query(ctx, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user devices: %w", err)
 	}
@@ -213,7 +214,7 @@ func (r *SyncRepository) ListUserDevices(ctx context.Context, userID int) ([]*sy
 func (r *SyncRepository) DeleteDevice(ctx context.Context, deviceID int) error {
 	query := `DELETE FROM devices WHERE id = $1`
 
-	_, err := r.db.Pool().Exec(ctx, query, deviceID)
+	_, err := r.pool.Exec(ctx, query, deviceID)
 	if err != nil {
 		return fmt.Errorf("failed to delete device: %w", err)
 	}
@@ -233,7 +234,7 @@ func (r *SyncRepository) GetRecordsForSync(ctx context.Context, userID int, last
 		LIMIT $3 OFFSET $4
 	`
 
-	rows, err := r.db.Pool().Query(ctx, query, userID, lastSyncTime, limit, offset)
+	rows, err := r.pool.Query(ctx, query, userID, lastSyncTime, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query records for sync: %w", err)
 	}
@@ -260,7 +261,7 @@ func (r *SyncRepository) GetRecordByID(ctx context.Context, recordID int) (*sync
 		WHERE id = $1
 	`
 
-	row := r.db.Pool().QueryRow(ctx, query, recordID)
+	row := r.pool.QueryRow(ctx, query, recordID)
 	rec, err := r.scanRecordSync(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -284,7 +285,7 @@ func (r *SyncRepository) GetRecordVersions(ctx context.Context, recordID int, li
 		LIMIT $2
 	`
 
-	rows, err := r.db.Pool().Query(ctx, query, recordID, limit)
+	rows, err := r.pool.Query(ctx, query, recordID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query record versions: %w", err)
 	}
@@ -324,7 +325,7 @@ func (r *SyncRepository) SaveRecord(ctx context.Context, record *sync.RecordSync
 		RETURNING id, version, last_modified
 	`
 
-	err = r.db.Pool().QueryRow(ctx, query,
+	err = r.pool.QueryRow(ctx, query,
 		record.UserID,
 		record.Type,
 		data,
@@ -351,7 +352,7 @@ func (r *SyncRepository) GetSyncConflicts(ctx context.Context, userID int) ([]*s
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.Pool().Query(ctx, query, userID)
+	rows, err := r.pool.Query(ctx, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sync conflicts: %w", err)
 	}
@@ -403,7 +404,7 @@ func (r *SyncRepository) GetConflictByID(ctx context.Context, conflictID int) (*
 	var conflict sync.Conflict
 	var resolvedAt sql.NullTime
 
-	err := r.db.Pool().QueryRow(ctx, query, conflictID).Scan(
+	err := r.pool.QueryRow(ctx, query, conflictID).Scan(
 		&conflict.ID,
 		&conflict.RecordID,
 		&conflict.UserID,
@@ -449,7 +450,7 @@ func (r *SyncRepository) SaveConflict(ctx context.Context, conflict *sync.Confli
 		RETURNING id
 	`
 
-	err := r.db.Pool().QueryRow(ctx, query,
+	err := r.pool.QueryRow(ctx, query,
 		conflict.RecordID,
 		conflict.UserID,
 		conflict.DeviceID,
@@ -472,7 +473,7 @@ func (r *SyncRepository) SaveConflict(ctx context.Context, conflict *sync.Confli
 
 // ResolveConflict разрешает конфликт
 func (r *SyncRepository) ResolveConflict(ctx context.Context, conflictID int, resolution string, resolvedData []byte) error {
-	tx, err := r.db.Pool().Begin(ctx)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -518,7 +519,7 @@ func (r *SyncRepository) ResolveConflict(ctx context.Context, conflictID int, re
 
 // BatchUpsertRecords массовое обновление/вставка записей
 func (r *SyncRepository) BatchUpsertRecords(ctx context.Context, records []*sync.RecordSync) (int, []int, error) {
-	tx, err := r.db.Pool().Begin(ctx)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -594,7 +595,7 @@ func (r *SyncRepository) BatchDeleteRecords(ctx context.Context, recordIDs []int
 		WHERE user_id = $1 AND id IN (%s)
 	`, strings.Join(placeholders, ","))
 
-	_, err := r.db.Pool().Exec(ctx, query, args...)
+	_, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to batch delete records: %w", err)
 	}

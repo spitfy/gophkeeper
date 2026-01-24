@@ -14,6 +14,7 @@
 package api
 
 import (
+	"github.com/jackc/pgx/v5/pgxpool"
 	healthAPI "gophkeeper/internal/app/server/api/http/health"
 	"gophkeeper/internal/app/server/api/http/middleware"
 	"gophkeeper/internal/app/server/api/http/middleware/auth"
@@ -41,7 +42,7 @@ type Handlers struct {
 }
 
 // New создает *chi.Mux с ВСЕМИ операциями через huma.Register
-func New(storage *postgres.Storage, log *slog.Logger) *chi.Mux {
+func New(pool *pgxpool.Pool, log *slog.Logger) *chi.Mux {
 	mux := chi.NewMux()
 
 	config := huma.DefaultConfig("Gophkeeper API", "1.0.0")
@@ -51,7 +52,7 @@ func New(storage *postgres.Storage, log *slog.Logger) *chi.Mux {
 
 	API := humachi.New(mux, config)
 
-	h := handlers(storage, log)
+	h := handlers(pool, log)
 	h.Health.SetupRoutes(API)
 	h.User.SetupRoutes(API)
 	h.Record.SetupRoutes(API)
@@ -60,8 +61,8 @@ func New(storage *postgres.Storage, log *slog.Logger) *chi.Mux {
 	return mux
 }
 
-func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
-	sessionRepo := postgres.NewSessionRepository(storage, log)
+func handlers(pool *pgxpool.Pool, log *slog.Logger) *Handlers {
+	sessionRepo := postgres.NewSessionRepository(pool, log)
 	sessionService := session.NewService(sessionRepo, log)
 	authMW := auth.New(sessionService, log)
 	loggerMW := logger.New(log)
@@ -70,20 +71,20 @@ func handlers(storage *postgres.Storage, log *slog.Logger) *Handlers {
 	middlewares.Add(loggerMW.Middleware())
 	healthHandler := healthAPI.NewHandler(log, middlewares.GetAllAndClear())
 
-	userRepo := postgres.NewUserRepository(storage, log)
+	userRepo := postgres.NewUserRepository(pool, log)
 	userValidator := user.NewPasswordValidator()
 	userService := user.NewService(userRepo, userValidator, log)
 	middlewares.Add(loggerMW.Middleware())
 	userHandler := userAPI.NewHandler(userService, sessionService, log, middlewares.GetAllAndClear())
 
-	recordRepo := postgres.NewRecordRepository(storage, log)
+	recordRepo := postgres.NewRecordRepository(pool, log)
 	recordFactory := record.NewRecordFactory()
 	recordService := record.NewService(recordRepo, recordFactory, log)
 	middlewares.Add(authMW.Middleware())
 	middlewares.Add(loggerMW.Middleware())
 	recordHandler := recordAPI.NewHandler(recordService, log, middlewares.GetAllAndClear())
 
-	syncRepo := postgres.NewSyncRepository(storage, log)
+	syncRepo := postgres.NewSyncRepository(pool, log)
 	syncService := sync.NewService(syncRepo, log, nil)
 	middlewares.Add(authMW.Middleware())
 	middlewares.Add(loggerMW.Middleware())
