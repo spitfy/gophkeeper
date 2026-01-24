@@ -1,3 +1,5 @@
+DROP VIEW IF EXISTS sync_status_view;
+
 DROP TRIGGER IF EXISTS update_sync_conflicts_updated_at ON sync_conflicts;
 DROP TRIGGER IF EXISTS update_sync_stats_updated_at ON sync_stats;
 DROP TRIGGER IF EXISTS update_devices_updated_at ON devices;

@@ -1,6 +1,6 @@
-CREATE TABLE IF NOT EXISTS sessions
+CREATE TABLE sessions
 (
-    id         SERIAL PRIMARY KEY,
+    id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id    INTEGER                  NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     token_hash BYTEA                    NOT NULL,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -8,6 +8,6 @@ CREATE TABLE IF NOT EXISTS sessions
     UNIQUE (token_hash)
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at); -- простой индекс без WHERE
-CREATE INDEX IF NOT EXISTS idx_sessions_user_expires ON sessions (user_id, expires_at);
+CREATE INDEX idx_sessions_user_id ON sessions (user_id);
+CREATE INDEX idx_sessions_expires ON sessions (expires_at);
+CREATE INDEX idx_sessions_user_expires ON sessions (user_id, expires_at);
