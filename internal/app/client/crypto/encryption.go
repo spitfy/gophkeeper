@@ -1,4 +1,3 @@
-// internal/app/client/crypto/encryption.go
 package crypto
 
 import (
@@ -39,7 +38,7 @@ func (e *RecordEncryptor) DecryptRecord(ciphertext []byte) ([]byte, error) {
 }
 
 // EncryptField шифрует отдельное поле записи
-func (e *RecordEncryptor) EncryptField(fieldName string, value string) (string, error) {
+func (e *RecordEncryptor) EncryptField(_ string, value string) (string, error) {
 	if e.masterKeyManager == nil {
 		return "", fmt.Errorf("мастер-ключ не инициализирован")
 	}
@@ -53,7 +52,7 @@ func (e *RecordEncryptor) EncryptField(fieldName string, value string) (string, 
 }
 
 // DecryptField расшифровывает отдельное поле записи
-func (e *RecordEncryptor) DecryptField(fieldName string, encryptedHex string) (string, error) {
+func (e *RecordEncryptor) DecryptField(_ string, encryptedHex string) (string, error) {
 	if e.masterKeyManager == nil {
 		return "", fmt.Errorf("мастер-ключ не инициализирован")
 	}
@@ -77,7 +76,6 @@ func (e *RecordEncryptor) GenerateHMAC(data []byte) (string, error) {
 		return "", fmt.Errorf("мастер-ключ не инициализирован")
 	}
 
-	// Используем мастер-ключ для создания HMAC
 	mac := hmac.New(sha256.New, e.masterKeyManager.getRawKey())
 	mac.Write(data)
 	return hex.EncodeToString(mac.Sum(nil)), nil
@@ -138,7 +136,6 @@ func (m *MasterKeyManager) getRawKey() []byte {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Создаем копию ключа для безопасности
 	keyCopy := make([]byte, len(m.masterKey))
 	copy(keyCopy, m.masterKey)
 	return keyCopy

@@ -91,7 +91,9 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// Загружаем токен если он есть
 	if token, err := app.GetToken(); err == nil && token != "" {
 		httpCl.SetToken(token)
+		app.mu.Lock()
 		app.authenticated = true
+		app.mu.Unlock()
 		log.Debug("Токен загружен из файла")
 	}
 
@@ -228,6 +230,7 @@ func (a *App) LockMasterKey() {
 	defer a.mu.Unlock()
 
 	a.crypto.Lock()
+	a.mu.Lock()
 	a.masterKeyReady = false
 }
 
@@ -282,18 +285,13 @@ func (a *App) Shutdown() {
 
 // IsAuthenticated проверяет, аутентифицирован ли пользователь
 func (a *App) IsAuthenticated() bool {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	if !a.authenticated {
-		// Проверяем наличие токена
 		token, err := a.GetToken()
 		if err == nil && token != "" {
-			a.mu.RUnlock()
-			a.mu.Lock()
 			a.authenticated = true
-			a.mu.Unlock()
-			a.mu.RLock()
 		}
 	}
 
@@ -318,7 +316,6 @@ func (a *App) SaveToken(token string) error {
 		return fmt.Errorf("ошибка сохранения токена: %w", err)
 	}
 
-	// Устанавливаем токен для HTTP клиента
 	a.httpClient.SetToken(token)
 
 	return nil
@@ -327,10 +324,9 @@ func (a *App) SaveToken(token string) error {
 // ClearToken удаляет токен
 func (a *App) ClearToken() error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	a.authenticated = false
 	a.state.UserLogin = ""
+	a.mu.Unlock()
 
 	if err := os.Remove(a.config.TokenPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("ошибка удаления токена: %w", err)
@@ -360,7 +356,6 @@ func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 		return "", err
 	}
 
-	// Сохраняем токен
 	if err := a.SaveToken(token); err != nil {
 		return "", fmt.Errorf("ошибка сохранения токена: %w", err)
 	}
@@ -370,7 +365,6 @@ func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 	a.state.UserLogin = req.Login
 	a.mu.Unlock()
 
-	// Сохраняем состояние
 	if err := a.saveAppState(); err != nil {
 		a.log.Warn("Не удалось сохранить состояние", "error", err)
 	}
@@ -462,7 +456,9 @@ func (a *App) CreateLoginRecord(ctx context.Context, req CreateLoginRequest) (in
 	}
 
 	a.state.RecordsCount++
-	a.saveAppState()
+	if err = a.saveAppState(); err != nil {
+		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
+	}
 
 	return serverID, nil
 }
@@ -517,7 +513,9 @@ func (a *App) CreateTextRecord(ctx context.Context, req CreateTextRequest) (int,
 	}
 
 	a.state.RecordsCount++
-	a.saveAppState()
+	if err = a.saveAppState(); err != nil {
+		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
+	}
 
 	return serverID, nil
 }
@@ -572,7 +570,9 @@ func (a *App) CreateCardRecord(ctx context.Context, req CreateCardRequest) (int,
 	}
 
 	a.state.RecordsCount++
-	a.saveAppState()
+	if err = a.saveAppState(); err != nil {
+		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
+	}
 
 	return serverID, nil
 }
@@ -628,7 +628,9 @@ func (a *App) CreateBinaryRecord(ctx context.Context, req CreateBinaryRequest) (
 	}
 
 	a.state.RecordsCount++
-	a.saveAppState()
+	if err = a.saveAppState(); err != nil {
+		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
+	}
 
 	return serverID, nil
 }
@@ -666,14 +668,15 @@ func (a *App) saveLocalRecord(recType record.RecType, data interface{}) (int, er
 	}
 
 	a.state.RecordsCount++
-	a.saveAppState()
+	if err = a.saveAppState(); err != nil {
+		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
+	}
 
 	return localRec.ID, nil
 }
 
 // GetRecord возвращает запись по ID с расшифровкой
 func (a *App) GetRecord(ctx context.Context, id int) (*LocalRecord, error) {
-	// Пытаемся получить из локального хранилища
 	localRec, err := a.storage.GetRecord(id)
 	if err != nil {
 		// Если нет локально, пробуем получить с сервера
@@ -683,7 +686,6 @@ func (a *App) GetRecord(ctx context.Context, id int) (*LocalRecord, error) {
 				return nil, fmt.Errorf("запись не найдена: %w", err)
 			}
 
-			// Конвертируем и сохраняем локально
 			localRec = FromServerRecord(serverRec)
 			if err := a.storage.SaveRecord(localRec); err != nil {
 				a.log.Warn("Не удалось сохранить запись локально", "error", err)
@@ -704,7 +706,6 @@ func (a *App) GetDecryptedRecord(ctx context.Context, id int) (interface{}, erro
 		return nil, err
 	}
 
-	// Расшифровываем данные
 	var decryptedData interface{}
 	if err := a.decryptRecordData(localRec.EncryptedData, &decryptedData); err != nil {
 		return nil, fmt.Errorf("ошибка расшифровки данных: %w", err)
@@ -715,13 +716,11 @@ func (a *App) GetDecryptedRecord(ctx context.Context, id int) (interface{}, erro
 
 // ListRecords возвращает список записей
 func (a *App) ListRecords(ctx context.Context, filter *RecordFilter) ([]*LocalRecord, error) {
-	// Сначала получаем локальные записи
 	records, err := a.storage.ListRecords(filter)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения локальных записей: %w", err)
 	}
 
-	// Если аутентифицированы, синхронизируем в фоне
 	if a.IsAuthenticated() {
 		go func() {
 			if _, err := a.syncService.Sync(ctx); err != nil {
@@ -729,11 +728,9 @@ func (a *App) ListRecords(ctx context.Context, filter *RecordFilter) ([]*LocalRe
 			}
 		}()
 
-		// Если локально нет записей, пробуем получить с сервера
 		if len(records) == 0 {
 			serverRecords, err := a.httpClient.ListRecords(ctx)
 			if err == nil && len(serverRecords.Records) > 0 {
-				// Сохраняем локально
 				for _, item := range serverRecords.Records {
 					// Получаем полную запись с сервера
 					serverRec, err := a.httpClient.GetRecord(ctx, item.ID)
@@ -799,19 +796,16 @@ func (a *App) DeleteRecord(ctx context.Context, id int, permanent bool) error {
 	}
 
 	if permanent {
-		// Полное удаление
 		if err := a.storage.HardDeleteRecord(id); err != nil {
 			return fmt.Errorf("ошибка удаления записи: %w", err)
 		}
 		a.state.RecordsCount--
 	} else {
-		// Мягкое удаление
 		if err := a.storage.DeleteRecord(id); err != nil {
 			return fmt.Errorf("ошибка удаления записи: %w", err)
 		}
 	}
 
-	// Синхронизируем с сервером
 	if a.IsAuthenticated() && rec.ServerID > 0 {
 		if err := a.httpClient.DeleteRecord(ctx, rec.ServerID); err != nil {
 			a.log.Warn("Не удалось синхронизировать удаление с сервером", "error", err, "record_id", id)

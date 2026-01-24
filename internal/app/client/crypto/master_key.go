@@ -32,8 +32,7 @@ const (
 	argon2KeyLen  = 32
 
 	// Константы для шифрования
-	aesGCMNonceLength = 12
-	keyVersion        = 1
+	keyVersion = 1
 
 	// Константы для файла мастер-ключа
 	masterKeyPermissions = 0600
@@ -124,7 +123,6 @@ func (m *MasterKeyManager) GenerateMasterKey(password string) error {
 
 	// Сохраняем ключ в файл (зашифрованный)
 	if err := m.saveMasterKey(); err != nil {
-		// Очищаем ключ из памяти в случае ошибки
 		m.clearKey()
 		return fmt.Errorf("ошибка сохранения мастер-ключа: %w", err)
 	}
@@ -137,18 +135,15 @@ func (m *MasterKeyManager) UnlockMasterKey(password string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Если ключ уже загружен, ничего не делаем
 	if m.isLoaded && !m.isLocked {
 		return nil
 	}
 
-	// Загружаем файл мастер-ключа
 	encryptedData, err := os.ReadFile(m.keyPath)
 	if err != nil {
 		return fmt.Errorf("ошибка чтения файла ключа: %w", err)
 	}
 
-	// Декодируем заголовок и зашифрованные данные
 	var container struct {
 		Header MasterKeyHeader `json:"header"`
 		Data   string          `json:"data"` // base64 encoded encrypted key
@@ -206,7 +201,6 @@ func (m *MasterKeyManager) UnlockMasterKey(password string) error {
 	m.isLoaded = true
 	m.isLocked = false
 
-	// Сохраняем сессию для последующих команд
 	m.mu.Unlock()
 	if err := m.SaveSession(); err != nil {
 		// Не критично, если не удалось сохранить сессию
@@ -406,16 +400,9 @@ func (m *MasterKeyManager) ChangeMasterPassword(oldPassword, newPassword string)
 
 // Lock блокирует мастер-ключ (очищает из памяти)
 func (m *MasterKeyManager) Lock() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.clearKey()
 	m.isLocked = true
-
-	// Удаляем файл сессии
-	m.mu.Unlock()
-	m.ClearSession()
-	m.mu.Lock()
+	_ = m.ClearSession()
 }
 
 // IsLocked проверяет, заблокирован ли ключ
