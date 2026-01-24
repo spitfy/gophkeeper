@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"golang.org/x/exp/slog"
 	"gophkeeper/internal/domain/session"
 	"net/http"
@@ -47,7 +46,7 @@ func (a *Auth) Middleware() func(huma.Context, func(huma.Context)) {
 		// Валидируем токен
 		userID, err := a.session.Validate(ctx.Context(), token[7:])
 		if err != nil {
-			a.log.Error(fmt.Sprintf("validate error: %w", err))
+			a.log.Error("validate error", "error", err)
 			ctx.SetStatus(http.StatusUnauthorized)
 			ctx.SetHeader("Content-Type", "application/json")
 
@@ -56,7 +55,7 @@ func (a *Auth) Middleware() func(huma.Context, func(huma.Context)) {
 				"error": "Unauthorized",
 			})
 			if err != nil {
-				a.log.Error(fmt.Sprintf("json encod: %w", err))
+				a.log.Error("json encoding", "error", err)
 			}
 			return
 		}

@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"gophkeeper/cmd/client/cmd/types"
 	"gophkeeper/internal/app/client"
 	"time"
 
@@ -24,7 +25,7 @@ var SyncCmd = &cobra.Command{
 Команда позволяет управлять процессом синхронизации, просматривать статус
 и разрешать конфликты.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		app := cmd.Context().Value("app").(*client.App)
+		app := cmd.Context().Value(types.ClientAppKey).(*client.App)
 		if app == nil {
 			return fmt.Errorf("приложение не инициализировано")
 		}

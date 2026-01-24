@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"fmt"
+	"gophkeeper/cmd/client/cmd/types"
 	"gophkeeper/internal/app/client"
 	"math/big"
 	"os"
@@ -40,7 +41,7 @@ var CreateCmd = &cobra.Command{
 - card     - данные банковской карты
 - file     - бинарный файл`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		app := cmd.Context().Value("app").(*client.App)
+		app := cmd.Context().Value(types.ClientAppKey).(*client.App)
 		if app == nil {
 			return fmt.Errorf("приложение не инициализировано")
 		}

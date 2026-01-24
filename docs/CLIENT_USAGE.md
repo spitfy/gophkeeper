@@ -433,13 +433,14 @@ package record
 import (
     "github.com/spf13/cobra"
     "gophkeeper/internal/app/client"
+    "gophkeeper/cmd/client/cmd/types"
 )
 
 var ExportCmd = &cobra.Command{
     Use:   "export [id] [output]",
     Short: "Экспортировать запись",
     RunE: func(cmd *cobra.Command, args []string) error {
-        app := cmd.Context().Value("app").(*client.App)
+        app := cmd.Context().Value(types.ClientAppKey).(*client.App)
         // Ваша логика
         return nil
     },

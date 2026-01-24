@@ -7,11 +7,10 @@ import (
 )
 
 const (
-	envPath   = "../../.env"
-	SecretKey = "SecRetKey"
-	EnvLocal  = "local"
-	EnvDev    = "dev"
-	EnvProd   = "prod"
+	envPath  = "../../.env"
+	EnvLocal = "local"
+	EnvDev   = "dev"
+	EnvProd  = "prod"
 )
 
 type Config struct {
@@ -60,7 +59,7 @@ func MustLoad() *Config {
 		Migrations:  viper.GetString("migrations_path"),
 	}
 	if d.Secret == "" {
-		d.Secret = SecretKey
+		log.Fatalln("Ключ шифрования должен быть указан в настройках конфигурации")
 	}
 
 	config := Config{

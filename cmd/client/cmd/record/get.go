@@ -4,6 +4,7 @@ package record
 import (
 	"encoding/json"
 	"fmt"
+	"gophkeeper/cmd/client/cmd/types"
 	"gophkeeper/internal/app/client"
 	"gophkeeper/internal/domain/record"
 	"os"
@@ -27,7 +28,7 @@ var GetCmd = &cobra.Command{
 Вы можете указать формат вывода и решить, показывать ли чувствительные данные.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		app := cmd.Context().Value("app").(*client.App)
+		app := cmd.Context().Value(types.ClientAppKey).(*client.App)
 		if app == nil {
 			return fmt.Errorf("приложение не инициализировано")
 		}

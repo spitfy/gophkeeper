@@ -3,6 +3,7 @@ package auth
 
 import (
 	"fmt"
+	"gophkeeper/cmd/client/cmd/types"
 	"gophkeeper/internal/app/client"
 	"os"
 
@@ -20,7 +21,7 @@ var RegisterCmd = &cobra.Command{
 После регистрации вы сможете синхронизировать данные между устройствами.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Получаем приложение из контекста
-		app := cmd.Context().Value("app").(*client.App)
+		app := cmd.Context().Value(types.ClientAppKey).(*client.App)
 		if app == nil {
 			return fmt.Errorf("приложение не инициализировано")
 		}

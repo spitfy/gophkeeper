@@ -1,9 +1,9 @@
-// cmd/client/cmd/root.go
 package cmd
 
 import (
 	"context"
 	"fmt"
+	"gophkeeper/cmd/client/cmd/types"
 	"os"
 	"path/filepath"
 
@@ -72,7 +72,7 @@ func setupApp(cmd *cobra.Command, _ []string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	cmd.SetContext(context.WithValue(ctx, "app", app))
+	cmd.SetContext(context.WithValue(ctx, types.ClientAppKey, app))
 
 	return nil
 }
