@@ -25,7 +25,7 @@ type Service struct {
 	log       *slog.Logger
 }
 
-func NewService(repo Repository, validator Validator, log *slog.Logger) Servicer {
+func NewService(repo Repository, validator Validator, log *slog.Logger) *Service {
 	return &Service{
 		repo:      repo,
 		validator: validator,

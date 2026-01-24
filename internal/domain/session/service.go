@@ -21,7 +21,7 @@ type Service struct {
 	log  *slog.Logger
 }
 
-func NewService(repo Repository, log *slog.Logger) Servicer {
+func NewService(repo Repository, log *slog.Logger) *Service {
 	return &Service{
 		repo: repo,
 		log:  log,
