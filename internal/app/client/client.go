@@ -121,9 +121,6 @@ func loadAppState(cfg *config.Config) (*AppState, error) {
 }
 
 func (a *App) saveAppState() error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
 	statePath := a.config.ConfigDir + "/state.json"
 	data, err := json.MarshalIndent(a.state, "", "  ")
 	if err != nil {
@@ -177,11 +174,12 @@ func (a *App) InitMasterKey(password string) error {
 	a.state.MasterKeyHash = keyHash
 	a.masterKeyReady = true
 	a.state.Initialized = true
-	a.mu.Unlock()
 
 	if err := a.saveAppState(); err != nil {
+		a.mu.Unlock()
 		return fmt.Errorf("ошибка сохранения состояния: %w", err)
 	}
+	a.mu.Unlock()
 
 	return nil
 }
@@ -326,15 +324,16 @@ func (a *App) ClearToken() error {
 	a.mu.Lock()
 	a.authenticated = false
 	a.state.UserLogin = ""
-	a.mu.Unlock()
 
 	if err := os.Remove(a.config.TokenPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("ошибка удаления токена: %w", err)
 	}
 
 	if err := a.saveAppState(); err != nil {
+		a.mu.Unlock()
 		return fmt.Errorf("ошибка сохранения состояния: %w", err)
 	}
+	a.mu.Unlock()
 
 	return nil
 }
@@ -356,18 +355,19 @@ func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 		return "", err
 	}
 
-	if err := a.SaveToken(token); err != nil {
+	if err = a.SaveToken(token); err != nil {
 		return "", fmt.Errorf("ошибка сохранения токена: %w", err)
 	}
 
 	a.mu.Lock()
 	a.authenticated = true
 	a.state.UserLogin = req.Login
-	a.mu.Unlock()
 
-	if err := a.saveAppState(); err != nil {
+	if err = a.saveAppState(); err != nil {
+		a.mu.Unlock()
 		a.log.Warn("Не удалось сохранить состояние", "error", err)
 	}
+	a.mu.Unlock()
 
 	a.log.Info("Вход выполнен успешно", "login", req.Login)
 	return token, nil
@@ -455,10 +455,13 @@ func (a *App) CreateLoginRecord(ctx context.Context, req CreateLoginRequest) (in
 		a.log.Warn("Не удалось сохранить запись локально", "error", err)
 	}
 
+	a.mu.Lock()
 	a.state.RecordsCount++
 	if err = a.saveAppState(); err != nil {
+		a.mu.Unlock()
 		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
 	}
+	a.mu.Unlock()
 
 	return serverID, nil
 }
@@ -512,10 +515,13 @@ func (a *App) CreateTextRecord(ctx context.Context, req CreateTextRequest) (int,
 		a.log.Warn("Не удалось сохранить запись локально", "error", err)
 	}
 
+	a.mu.Lock()
 	a.state.RecordsCount++
 	if err = a.saveAppState(); err != nil {
+		a.mu.Unlock()
 		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
 	}
+	a.mu.Unlock()
 
 	return serverID, nil
 }
@@ -569,10 +575,13 @@ func (a *App) CreateCardRecord(ctx context.Context, req CreateCardRequest) (int,
 		a.log.Warn("Не удалось сохранить запись локально", "error", err)
 	}
 
+	a.mu.Lock()
 	a.state.RecordsCount++
 	if err = a.saveAppState(); err != nil {
+		a.mu.Unlock()
 		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
 	}
+	a.mu.Unlock()
 
 	return serverID, nil
 }
@@ -627,10 +636,13 @@ func (a *App) CreateBinaryRecord(ctx context.Context, req CreateBinaryRequest) (
 		a.log.Warn("Не удалось сохранить запись локально", "error", err)
 	}
 
+	a.mu.Lock()
 	a.state.RecordsCount++
 	if err = a.saveAppState(); err != nil {
+		a.mu.Unlock()
 		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
 	}
+	a.mu.Unlock()
 
 	return serverID, nil
 }
@@ -667,10 +679,13 @@ func (a *App) saveLocalRecord(recType record.RecType, data interface{}) (int, er
 		return 0, fmt.Errorf("ошибка сохранения записи: %w", err)
 	}
 
+	a.mu.Lock()
 	a.state.RecordsCount++
 	if err = a.saveAppState(); err != nil {
+		a.mu.Unlock()
 		return 0, fmt.Errorf("ошибка сохранения состояния: %w", err)
 	}
+	a.mu.Unlock()
 
 	return localRec.ID, nil
 }
@@ -812,9 +827,12 @@ func (a *App) DeleteRecord(ctx context.Context, id int, permanent bool) error {
 		}
 	}
 
+	a.mu.Lock()
 	if err := a.saveAppState(); err != nil {
+		a.mu.Unlock()
 		a.log.Warn("Не удалось сохранить состояние", "error", err)
 	}
+	a.mu.Unlock()
 
 	return nil
 }
