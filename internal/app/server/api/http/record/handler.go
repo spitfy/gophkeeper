@@ -152,14 +152,12 @@ func (h *Handler) createLogin(ctx context.Context, input *createLoginInput) (*ou
 		return nil, huma.Error401Unauthorized("Unauthorized")
 	}
 
-	// Создаем данные логина
 	loginData := &record.LoginData{
 		Username: input.Body.Username,
 		Password: input.Body.Password,
 		Notes:    input.Body.Notes,
 	}
 
-	// Создаем метаданные
 	loginMeta := &record.LoginMeta{
 		Title:     input.Body.Title,
 		Resource:  input.Body.Resource,
@@ -169,7 +167,6 @@ func (h *Handler) createLogin(ctx context.Context, input *createLoginInput) (*ou
 		TwoFAType: input.Body.TwoFAType,
 	}
 
-	// Валидация
 	if err := loginData.Validate(); err != nil {
 		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
