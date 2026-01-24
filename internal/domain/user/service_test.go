@@ -16,6 +16,10 @@ type MockRepository struct {
 	mock.Mock
 }
 
+type MockValidator struct {
+	mock.Mock
+}
+
 func (m *MockRepository) Create(ctx context.Context, login, passwordHash string) (int, error) {
 	args := m.Called(ctx, login, passwordHash)
 	return args.Int(0), args.Error(1)
@@ -26,15 +30,31 @@ func (m *MockRepository) FindByLogin(ctx context.Context, login string) (User, e
 	return args.Get(0).(User), args.Error(1)
 }
 
+func (m *MockValidator) ValidateRegister(login, password string) error {
+	args := m.Called(login, password)
+	return args.Error(0)
+}
+
+func (m *MockValidator) ValidateLogin(login string) error {
+	args := m.Called(login)
+	return args.Error(0)
+}
+
+func (m *MockValidator) ValidatePassword(password string) error {
+	args := m.Called(password)
+	return args.Error(0)
+}
+
 func TestService_Register(t *testing.T) {
 	mockRepo := new(MockRepository)
+	mockValidator := new(MockValidator)
 	logger := slog.Default()
-	service := NewService(mockRepo, logger)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	login := "testuser"
 	password := "testpassword123"
 
-	// Mock the repository call - we can't predict the exact hash, so we'll check that it's called with correct login and non-empty hash
+	mockValidator.On("ValidateRegister", login, password).Return(nil)
 	mockRepo.On("Create", mock.Anything, login, mock.MatchedBy(func(hash string) bool {
 		return hash != "" && len(hash) > 0
 	})).Return(123, nil)
@@ -48,12 +68,14 @@ func TestService_Register(t *testing.T) {
 
 func TestService_Register_RepositoryError(t *testing.T) {
 	mockRepo := new(MockRepository)
+	mockValidator := new(MockValidator)
 	logger := slog.Default()
-	service := NewService(mockRepo, logger)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	login := "testuser"
 	password := "testpassword123"
 
+	mockValidator.On("ValidateRegister", login, password).Return(nil)
 	mockRepo.On("Create", mock.Anything, login, mock.AnythingOfType("string")).Return(0, errors.New("database error"))
 
 	_, err := service.Register(context.Background(), login, password)
@@ -65,13 +87,13 @@ func TestService_Register_RepositoryError(t *testing.T) {
 
 func TestService_Authenticate_Success(t *testing.T) {
 	mockRepo := new(MockRepository)
+	mockValidator := new(MockValidator)
 	logger := slog.Default()
-	service := NewService(mockRepo, logger)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	login := "testuser"
 	password := "testpassword123"
 
-	// Create a valid hash for the password
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	assert.NoError(t, err)
 
@@ -81,6 +103,7 @@ func TestService_Authenticate_Success(t *testing.T) {
 		Password: string(hash),
 	}
 
+	mockValidator.On("ValidateLogin", login).Return(nil)
 	mockRepo.On("FindByLogin", mock.Anything, login).Return(user, nil)
 
 	authUser, err := service.Authenticate(context.Background(), login, password)
@@ -92,31 +115,34 @@ func TestService_Authenticate_Success(t *testing.T) {
 
 func TestService_Authenticate_UserNotFound(t *testing.T) {
 	mockRepo := new(MockRepository)
+	mockValidator := new(MockValidator)
 	logger := slog.Default()
-	service := NewService(mockRepo, logger)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	login := "nonexistent"
 	password := "testpassword123"
 
+	mockValidator.On("ValidateLogin", login).Return(nil)
 	mockRepo.On("FindByLogin", mock.Anything, login).Return(User{}, errors.New("user not found"))
 
 	_, err := service.Authenticate(context.Background(), login, password)
 	assert.Error(t, err)
-	assert.Equal(t, ErrUserNotFound, err)
+	assert.Equal(t, ErrNotFound, err)
 
 	mockRepo.AssertExpectations(t)
 }
 
 func TestService_Authenticate_InvalidPassword(t *testing.T) {
 	mockRepo := new(MockRepository)
+	mockValidator := new(MockValidator)
 	logger := slog.Default()
-	service := NewService(mockRepo, logger)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	login := "testuser"
 	correctPassword := "correctpassword"
 	wrongPassword := "wrongpassword"
 
-	// Create a valid hash for the correct password
+	mockValidator.On("ValidateLogin", login).Return(nil)
 	hash, err := bcrypt.GenerateFromPassword([]byte(correctPassword), bcrypt.DefaultCost)
 	assert.NoError(t, err)
 
@@ -130,36 +156,36 @@ func TestService_Authenticate_InvalidPassword(t *testing.T) {
 
 	_, err = service.Authenticate(context.Background(), login, wrongPassword)
 	assert.Error(t, err)
-	assert.Equal(t, ErrInvalidCredentials, err)
+	assert.Equal(t, ErrInvalidAuth, err)
 
 	mockRepo.AssertExpectations(t)
 }
 
 func TestService_Authenticate_InvalidHash(t *testing.T) {
 	mockRepo := new(MockRepository)
+	mockValidator := new(MockValidator)
 	logger := slog.Default()
-	service := NewService(mockRepo, logger)
+	service := NewService(mockRepo, mockValidator, logger)
 
 	login := "testuser"
 	password := "testpassword123"
 
-	// Create a user with invalid hash (not a bcrypt hash)
 	user := User{
 		ID:       123,
 		Login:    login,
-		Password: "invalidhash", // This is not a valid bcrypt hash
+		Password: "invalidhash",
 	}
 
+	mockValidator.On("ValidateLogin", login).Return(nil)
 	mockRepo.On("FindByLogin", mock.Anything, login).Return(user, nil)
 
 	_, err := service.Authenticate(context.Background(), login, password)
 	assert.Error(t, err)
-	assert.Equal(t, ErrInvalidCredentials, err)
+	assert.Equal(t, ErrInvalidAuth, err)
 
 	mockRepo.AssertExpectations(t)
 }
 
-// Test table-driven tests for edge cases
 func TestService_Register_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -214,9 +240,11 @@ func TestService_Register_EdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := new(MockRepository)
+			mockValidator := new(MockValidator)
 			logger := slog.Default()
-			service := NewService(mockRepo, logger)
+			service := NewService(mockRepo, mockValidator, logger)
 
+			mockValidator.On("ValidateRegister", tt.login, tt.password).Return(nil)
 			if !tt.expectError {
 				mockRepo.On("Create", mock.Anything, tt.login, mock.AnythingOfType("string")).Return(123, nil)
 			}
@@ -245,10 +273,10 @@ func TestService_Authenticate_EdgeCases(t *testing.T) {
 		{
 			name:          "Empty login",
 			login:         "",
-			password:      "password123",
+			password:      "passworD123",
 			setupMock:     false,
 			expectError:   true,
-			expectedError: ErrUserNotFound,
+			expectedError: ErrNotFound,
 		},
 		{
 			name:          "Empty password",
@@ -264,7 +292,7 @@ func TestService_Authenticate_EdgeCases(t *testing.T) {
 			password:      "",
 			setupMock:     false,
 			expectError:   true,
-			expectedError: ErrUserNotFound,
+			expectedError: ErrNotFound,
 		},
 		{
 			name:          "Valid credentials",
@@ -279,8 +307,10 @@ func TestService_Authenticate_EdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := new(MockRepository)
+			mockValidator := new(MockValidator)
 			logger := slog.Default()
-			service := NewService(mockRepo, logger)
+			service := NewService(mockRepo, mockValidator, logger)
+			mockValidator.On("ValidateLogin", tt.login).Return(nil)
 
 			if tt.setupMock {
 				hash, err := bcrypt.GenerateFromPassword([]byte(tt.password), bcrypt.DefaultCost)
