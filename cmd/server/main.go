@@ -17,11 +17,6 @@ import (
 	"github.com/danielgtaylor/huma/v2/humacli"
 )
 
-// Options for the CLI. Pass `--port` or set the `SERVICE_PORT` env var.
-type Options struct {
-	Port int `help:"Port to listen on" short:"p" default:"8888"`
-}
-
 func main() {
 	cfg := config.MustLoad()
 	log := logger.New(cfg.Env)
@@ -43,7 +38,7 @@ func main() {
 
 	router := api.New(pool, log)
 
-	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
+	cli := humacli.New(func(hooks humacli.Hooks, _ *struct{}) {
 		server := &http.Server{
 			Addr:    fmt.Sprintf(":%d", cfg.Server.RunPort),
 			Handler: router,

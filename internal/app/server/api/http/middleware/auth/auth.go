@@ -3,9 +3,10 @@ package auth
 import (
 	"context"
 	"encoding/json"
-	"golang.org/x/exp/slog"
 	"gophkeeper/internal/domain/session"
 	"net/http"
+
+	"golang.org/x/exp/slog"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -37,7 +38,7 @@ func (a *Auth) Middleware() func(huma.Context, func(huma.Context)) {
 			ctx.SetHeader("Content-Type", "application/json")
 
 			w := ctx.BodyWriter()
-			json.NewEncoder(w).Encode(map[string]string{
+			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error": "Unauthorized",
 			})
 			return

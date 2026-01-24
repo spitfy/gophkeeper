@@ -7,8 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	"golang.org/x/exp/slog"
 	"time"
+
+	"golang.org/x/exp/slog"
 )
 
 type Servicer interface {

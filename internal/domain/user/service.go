@@ -5,13 +5,6 @@ import (
 	"fmt"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/exp/slog"
-	"unicode"
-)
-
-const (
-	minLoginLen    = 3
-	maxLoginLen    = 32
-	minPasswordLen = 4
 )
 
 type Servicer interface {
@@ -63,43 +56,4 @@ func (s *Service) Authenticate(ctx context.Context, login, password string) (Use
 	}
 
 	return user, nil
-}
-
-func validatePassword(password string) error {
-	if len(password) < minPasswordLen {
-		return fmt.Errorf("password must be at least %d characters", minPasswordLen)
-	}
-
-	hasLower := false
-	hasUpper := false
-	hasDigit := false
-	hasSpecial := false
-
-	for _, r := range password {
-		switch {
-		case unicode.IsLower(r):
-			hasLower = true
-		case unicode.IsUpper(r):
-			hasUpper = true
-		case unicode.IsDigit(r):
-			hasDigit = true
-		case unicode.IsPunct(r) || unicode.IsSymbol(r):
-			hasSpecial = true
-		}
-	}
-
-	if !hasLower {
-		return fmt.Errorf("password must contain at least one lowercase letter")
-	}
-	if !hasUpper {
-		return fmt.Errorf("password must contain at least one uppercase letter")
-	}
-	if !hasDigit {
-		return fmt.Errorf("password must contain at least one digit")
-	}
-	if !hasSpecial {
-		return fmt.Errorf("password must contain at least one special character")
-	}
-
-	return nil
 }

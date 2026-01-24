@@ -137,13 +137,11 @@ var lockCmd = &cobra.Command{
 	
 После блокировки для работы с зашифрованными данными потребуется
 повторная разблокировка командой: gophkeeper unlock`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Проверяем, инициализирован ли клиент
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		if !app.IsInitialized() {
 			return fmt.Errorf("клиент не инициализирован. Выполните: gophkeeper init")
 		}
 
-		// Блокируем мастер-ключ
 		app.LockMasterKey()
 
 		fmt.Println("✅ Мастер-ключ заблокирован")

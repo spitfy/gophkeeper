@@ -28,3 +28,9 @@ client-darwin:
 
 client-windows:
 	GOOS=windows GOARCH=amd64 go build -o bin/client-windows.exe ./cmd/client/main.go
+
+lint:
+	golangci-lint run ./...
+
+fmt:
+	golangci-lint run --fix ./...

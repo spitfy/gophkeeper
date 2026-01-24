@@ -14,7 +14,6 @@
 package api
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
 	healthAPI "gophkeeper/internal/app/server/api/http/health"
 	"gophkeeper/internal/app/server/api/http/middleware"
 	"gophkeeper/internal/app/server/api/http/middleware/auth"
@@ -27,6 +26,8 @@ import (
 	"gophkeeper/internal/domain/sync"
 	"gophkeeper/internal/domain/user"
 	"gophkeeper/internal/infrastructure/storage/postgres"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"

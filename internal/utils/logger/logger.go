@@ -1,10 +1,11 @@
 package logger
 
 import (
-	"golang.org/x/exp/slog"
 	"gophkeeper/internal/app/server/config"
 	"gophkeeper/internal/utils/slogpretty"
 	"os"
+
+	"golang.org/x/exp/slog"
 )
 
 func New(env string) *slog.Logger {

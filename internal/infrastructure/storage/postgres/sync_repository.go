@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"golang.org/x/exp/slog"
 
@@ -74,7 +76,7 @@ func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.S
 }
 
 // UpdateSyncStatus обновляет статус синхронизации (теперь это no-op, т.к. используется VIEW)
-func (r *SyncRepository) UpdateSyncStatus(ctx context.Context, status *sync.SyncStatus) error {
+func (r *SyncRepository) UpdateSyncStatus(_ context.Context, status *sync.SyncStatus) error {
 	// VIEW автоматически вычисляет данные, ничего обновлять не нужно
 	r.log.Debug("UpdateSyncStatus called but using VIEW, no action needed", "user_id", status.UserID)
 	return nil
@@ -477,7 +479,9 @@ func (r *SyncRepository) ResolveConflict(ctx context.Context, conflictID int, re
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		_ = tx.Rollback(ctx)
+	}(tx, ctx)
 
 	// Получаем информацию о конфликте
 	var recordID int
@@ -523,7 +527,9 @@ func (r *SyncRepository) BatchUpsertRecords(ctx context.Context, records []*sync
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		_ = tx.Rollback(ctx)
+	}(tx, ctx)
 
 	var processed int
 	var failedIDs []int
@@ -604,7 +610,7 @@ func (r *SyncRepository) BatchDeleteRecords(ctx context.Context, recordIDs []int
 }
 
 // GetSyncStats возвращает статистику синхронизации (заглушка, т.к. таблица удалена)
-func (r *SyncRepository) GetSyncStats(ctx context.Context, userID int) (*sync.SyncStats, error) {
+func (r *SyncRepository) GetSyncStats(_ context.Context, userID int) (*sync.SyncStats, error) {
 	// Возвращаем пустую статистику
 	return &sync.SyncStats{
 		UserID:          userID,
@@ -620,14 +626,13 @@ func (r *SyncRepository) GetSyncStats(ctx context.Context, userID int) (*sync.Sy
 }
 
 // IncrementSyncStats увеличивает статистику синхронизации (заглушка)
-func (r *SyncRepository) IncrementSyncStats(ctx context.Context, userID int, uploads, downloads int64) error {
-	// Таблица удалена, ничего не делаем
+func (r *SyncRepository) IncrementSyncStats(_ context.Context, userID int, _, _ int64) error {
 	r.log.Debug("IncrementSyncStats called but sync_stats table removed", "user_id", userID)
 	return nil
 }
 
 // RecordSyncDuration записывает время синхронизации (заглушка)
-func (r *SyncRepository) RecordSyncDuration(ctx context.Context, userID int, duration time.Duration) error {
+func (r *SyncRepository) RecordSyncDuration(_ context.Context, userID int, _ time.Duration) error {
 	// Таблица удалена, ничего не делаем
 	r.log.Debug("RecordSyncDuration called but sync_stats table removed", "user_id", userID)
 	return nil

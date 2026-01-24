@@ -3,9 +3,10 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"gophkeeper/internal/domain/user"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/exp/slog"
-	"gophkeeper/internal/domain/user"
 )
 
 func NewUserRepository(pool *pgxpool.Pool, log *slog.Logger) *UserRepository {

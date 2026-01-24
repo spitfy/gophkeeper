@@ -3,9 +3,10 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/exp/slog"
-	"time"
 )
 
 type SessionRepository struct {

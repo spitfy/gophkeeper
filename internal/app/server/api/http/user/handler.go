@@ -3,10 +3,11 @@ package user
 import (
 	"context"
 	"fmt"
-	"github.com/danielgtaylor/huma/v2"
-	"golang.org/x/exp/slog"
 	"gophkeeper/internal/domain/session"
 	"gophkeeper/internal/domain/user"
+
+	"github.com/danielgtaylor/huma/v2"
+	"golang.org/x/exp/slog"
 )
 
 type Handler struct {

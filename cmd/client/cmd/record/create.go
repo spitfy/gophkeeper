@@ -63,7 +63,7 @@ var CreateCmd = &cobra.Command{
 			fmt.Print("Ваш выбор [1-4]: ")
 
 			var choice string
-			fmt.Scanln(&choice)
+			_, _ = fmt.Scanln(&choice)
 
 			switch choice {
 			case "1":
@@ -122,13 +122,19 @@ var CreateCmd = &cobra.Command{
 func createPasswordRecord(cmd *cobra.Command, app *client.App) (int, error) {
 	if username == "" {
 		fmt.Print("Логин/Email: ")
-		fmt.Scanln(&username)
+		_, err := fmt.Scanln(&username)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if password == "" {
 		fmt.Print("Пароль (оставьте пустым для генерации): ")
 		var pass string
-		fmt.Scanln(&pass)
+		_, err := fmt.Scanln(&pass)
+		if err != nil {
+			return 0, err
+		}
 
 		if pass == "" {
 			// Генерируем пароль
@@ -141,7 +147,10 @@ func createPasswordRecord(cmd *cobra.Command, app *client.App) (int, error) {
 
 	if url == "" {
 		fmt.Print("URL (необязательно): ")
-		fmt.Scanln(&url)
+		_, err := fmt.Scanln(&url)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	req := client.CreateLoginRequest{
@@ -179,7 +188,10 @@ func createNoteRecord(cmd *cobra.Command, app *client.App) (int, error) {
 func createCardRecord(cmd *cobra.Command, app *client.App) (int, error) {
 	if cardNumber == "" {
 		fmt.Print("Номер карты: ")
-		fmt.Scanln(&cardNumber)
+		_, err := fmt.Scanln(&cardNumber)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if cardHolder == "" {
@@ -192,12 +204,12 @@ func createCardRecord(cmd *cobra.Command, app *client.App) (int, error) {
 
 	if expiryDate == "" {
 		fmt.Print("Срок действия (MM/YY): ")
-		fmt.Scanln(&expiryDate)
+		_, _ = fmt.Scanln(&expiryDate)
 	}
 
 	if cvv == "" {
 		fmt.Print("CVV: ")
-		fmt.Scanln(&cvv)
+		_, _ = fmt.Scanln(&cvv)
 	}
 
 	// Разбираем срок действия
@@ -223,7 +235,7 @@ func createCardRecord(cmd *cobra.Command, app *client.App) (int, error) {
 func createFileRecord(cmd *cobra.Command, app *client.App) (int, error) {
 	if filePath == "" {
 		fmt.Print("Путь к файлу: ")
-		fmt.Scanln(&filePath)
+		_, _ = fmt.Scanln(&filePath)
 	}
 
 	// Читаем файл

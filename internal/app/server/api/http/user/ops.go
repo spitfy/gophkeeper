@@ -1,8 +1,9 @@
 package user
 
 import (
-	"github.com/danielgtaylor/huma/v2"
 	"net/http"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
 func (h *Handler) registerOp() huma.Operation {
