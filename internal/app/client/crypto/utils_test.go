@@ -3,10 +3,11 @@ package crypto
 import (
 	"crypto/hmac"
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCheckPasswordStrength(t *testing.T) {

@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"golang.org/x/exp/slog"
 	"gophkeeper/internal/app/server/config"
+
+	"golang.org/x/exp/slog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
