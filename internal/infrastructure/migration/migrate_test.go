@@ -2,10 +2,11 @@ package migration
 
 import (
 	"errors"
+	"testing"
+
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"testing"
 
 	"gophkeeper/internal/app/server/config"
 )
@@ -39,7 +40,7 @@ func TestMigration_Up_Success(t *testing.T) {
 	mockM.On("Close").Return(nil, nil)
 
 	// Инжектим мок через фабрику
-	engine := func(source, db string) (Migrator, error) {
+	engine := func(_, _ string) (Migrator, error) {
 		return mockM, nil
 	}
 
@@ -63,7 +64,7 @@ func TestMigration_Up_NoChange(t *testing.T) {
 	mockM.On("Up").Return(migrate.ErrNoChange)
 	mockM.On("Close").Return(nil, nil)
 
-	engine := func(source, db string) (Migrator, error) {
+	engine := func(_, _ string) (Migrator, error) {
 		return mockM, nil
 	}
 
@@ -82,7 +83,7 @@ func TestMigration_Up_EngineError(t *testing.T) {
 	}
 
 	// Ошибка на этапе создания мигратора (например, неверный драйвер)
-	engine := func(source, db string) (Migrator, error) {
+	engine := func(_, _ string) (Migrator, error) {
 		return nil, errors.New("engine crash")
 	}
 

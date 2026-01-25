@@ -17,15 +17,15 @@ type Migrator interface {
 	Close() (error, error)
 }
 
-// MigrationEngine — фабрика для создания мигратора (чтобы не лезть в ФС и БД в тестах)
-type MigrationEngine func(sourceURL, databaseURL string) (Migrator, error)
+// Engine — фабрика для создания мигратора (чтобы не лезть в ФС и БД в тестах)
+type Engine func(sourceURL, databaseURL string) (Migrator, error)
 
 type Migration struct {
 	cfg    *config.Config
-	engine MigrationEngine
+	engine Engine
 }
 
-func NewMigration(conf *config.Config, engine MigrationEngine) *Migration {
+func NewMigration(conf *config.Config, engine Engine) *Migration {
 	return &Migration{
 		cfg:    conf,
 		engine: engine,
