@@ -11,19 +11,34 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
-type Migration struct {
-	cfg *config.Config
+// Migrator — интерфейс для самой библиотеки migrate.Migrate
+type Migrator interface {
+	Up() error
+	Close() (error, error)
 }
 
-func NewMigration(conf *config.Config) *Migration {
-	return &Migration{conf}
+// MigrationEngine — фабрика для создания мигратора (чтобы не лезть в ФС и БД в тестах)
+type MigrationEngine func(sourceURL, databaseURL string) (Migrator, error)
+
+type Migration struct {
+	cfg    *config.Config
+	engine MigrationEngine
+}
+
+func NewMigration(conf *config.Config, engine MigrationEngine) *Migration {
+	return &Migration{
+		cfg:    conf,
+		engine: engine,
+	}
+}
+
+// DefaultEngine — реальная реализация для продакшена
+func DefaultEngine(sourceURL, databaseURL string) (Migrator, error) {
+	return migrate.New(sourceURL, databaseURL)
 }
 
 func (mg *Migration) Up() error {
-	m, err := migrate.New(
-		"file://"+mg.cfg.DB.Migrations,
-		mg.cfg.DB.DatabaseURI,
-	)
+	m, err := mg.engine("file://"+mg.cfg.DB.Migrations, mg.cfg.DB.DatabaseURI)
 	if err != nil {
 		return err
 	}

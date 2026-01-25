@@ -28,7 +28,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	mg := migration.NewMigration(cfg)
+	mg := migration.NewMigration(cfg, migration.DefaultEngine)
 	err = mg.Up()
 	if err != nil {
 		log.Error("failed to run migrations", sl.Err(err))

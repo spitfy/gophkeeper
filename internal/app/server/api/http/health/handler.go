@@ -27,7 +27,7 @@ func (h *Handler) healthCheck(_ context.Context, _ *Input) (*Output, error) {
 	h.log.Debug("health check request received")
 
 	return &Output{
-		Body: Response{
+		Body: HResponse{
 			Status: "OK",
 		},
 	}, nil

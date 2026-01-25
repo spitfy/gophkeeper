@@ -5,10 +5,10 @@ type Input struct{}
 
 // Output represents the output for health check endpoint
 type Output struct {
-	Body Response
+	Body HResponse
 }
 
-// Response represents the health check response
-type Response struct {
+// HResponse represents the health check response
+type HResponse struct {
 	Status string `json:"status" example:"OK" doc:"Health status of the service"`
 }
