@@ -25,7 +25,7 @@ var LoginCmd = &cobra.Command{
 	Long: `Аутентификация на сервере GophKeeper.
 	
 После входа токен сохраняется локально для последующих операций.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		app := cmd.Context().Value(types.ClientAppKey).(*client.App)
 		if app == nil {
 			return fmt.Errorf("приложение не инициализировано")
@@ -37,7 +37,7 @@ var LoginCmd = &cobra.Command{
 		// Запрашиваем email
 		fmt.Print("Email: ")
 		var email string
-		fmt.Scanln(&email)
+		_, _ = fmt.Scanln(&email)
 
 		// Запрашиваем пароль
 		fmt.Print("Пароль: ")

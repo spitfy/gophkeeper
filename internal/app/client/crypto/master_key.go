@@ -81,9 +81,7 @@ func NewMasterKeyManager(keyPath string) (*MasterKeyManager, error) {
 	}
 
 	// Пытаемся загрузить активную сессию
-	if err := manager.LoadSession(); err == nil {
-		// Сессия успешно загружена, ключ разблокирован
-	}
+	_ = manager.LoadSession()
 
 	return manager, nil
 }
@@ -202,10 +200,7 @@ func (m *MasterKeyManager) UnlockMasterKey(password string) error {
 	m.isLocked = false
 
 	m.mu.Unlock()
-	if err := m.SaveSession(); err != nil {
-		// Не критично, если не удалось сохранить сессию
-		// Ключ всё равно разблокирован для текущей команды
-	}
+	_ = m.SaveSession()
 	m.mu.Lock()
 
 	return nil

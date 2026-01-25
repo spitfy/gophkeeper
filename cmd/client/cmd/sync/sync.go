@@ -24,7 +24,7 @@ var SyncCmd = &cobra.Command{
 	
 Команда позволяет управлять процессом синхронизации, просматривать статус
 и разрешать конфликты.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		app := cmd.Context().Value(types.ClientAppKey).(*client.App)
 		if app == nil {
 			return fmt.Errorf("приложение не инициализировано")
@@ -47,7 +47,7 @@ var SyncCmd = &cobra.Command{
 	},
 }
 
-func runSync(ctx context.Context, app *client.App, force bool) error {
+func runSync(ctx context.Context, app *client.App, _ bool) error {
 	fmt.Println("=== Синхронизация данных ===")
 
 	if !app.IsAuthenticated() {
@@ -117,7 +117,7 @@ func runSync(ctx context.Context, app *client.App, force bool) error {
 	return nil
 }
 
-func showSyncStatus(ctx context.Context, app *client.App) error {
+func showSyncStatus(_ context.Context, app *client.App) error {
 	fmt.Println("=== Статус синхронизации ===")
 
 	syncService := app.GetSyncService()
@@ -141,7 +141,6 @@ func showSyncStatus(ctx context.Context, app *client.App) error {
 
 	fmt.Printf("\n⚙️  Конфигурация: (используйте файл sync_config.json для настройки)\n")
 
-	// Проверяем соединение с сервером
 	fmt.Printf("\n🌐 Соединение с сервером: ")
 	if err := app.CheckConnection(); err != nil {
 		fmt.Printf("❌ Ошибка: %v\n", err)
@@ -149,7 +148,6 @@ func showSyncStatus(ctx context.Context, app *client.App) error {
 		fmt.Printf("✅ OK\n")
 	}
 
-	// Проверяем аутентификацию
 	fmt.Printf("🔐 Аутентификация: ")
 	if app.IsAuthenticated() {
 		fmt.Printf("✅ Выполнена\n")
@@ -167,8 +165,7 @@ func resetSyncStats(app *client.App) error {
 	return nil
 }
 
-func showSyncConflicts(ctx context.Context, app *client.App) error {
-	// TODO: Реализовать отображение конфликтов
+func showSyncConflicts(_ context.Context, _ *client.App) error {
 	fmt.Println("Просмотр конфликтов будет реализован в будущей версии")
 	return nil
 }

@@ -22,7 +22,7 @@ var initCmd = &cobra.Command{
 	
 Мастер-ключ защищает все ваши данные. Убедитесь, что выбрали надежный пароль
 и сохранили его в безопасном месте. Без мастер-ключа восстановить данные невозможно.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		// Проверяем, не инициализирован ли уже клиент
 		if app.IsInitialized() {
 			fmt.Println("Клиент уже инициализирован.")
@@ -159,7 +159,6 @@ func init() {
 	rootCmd.AddCommand(auth.AuthCmd)
 	auth.AuthCmd.AddCommand(auth.RegisterCmd)
 	auth.AuthCmd.AddCommand(auth.LoginCmd)
-	auth.AuthCmd.AddCommand(auth.ChangePasswordCmd)
 
 	// Добавляем команды работы с записями
 	rootCmd.AddCommand(record.RecordCmd)

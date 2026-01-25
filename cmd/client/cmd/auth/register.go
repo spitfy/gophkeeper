@@ -19,7 +19,7 @@ var RegisterCmd = &cobra.Command{
 	Long: `Регистрация нового пользователя на сервере GophKeeper.
 	
 После регистрации вы сможете синхронизировать данные между устройствами.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		// Получаем приложение из контекста
 		app := cmd.Context().Value(types.ClientAppKey).(*client.App)
 		if app == nil {
@@ -32,7 +32,7 @@ var RegisterCmd = &cobra.Command{
 		// Запрашиваем email
 		fmt.Print("Login: ")
 		var login string
-		fmt.Scanln(&login)
+		_, _ = fmt.Scanln(&login)
 
 		// Запрашиваем пароль
 		fmt.Print("Пароль: ")

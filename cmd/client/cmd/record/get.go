@@ -168,7 +168,7 @@ func printRecordHuman(rec *client.LocalRecord, decryptedData interface{}, showPa
 	return nil
 }
 
-func printRecordJSON(rec *client.LocalRecord, decryptedData interface{}, showPassword bool) error {
+func printRecordJSON(rec *client.LocalRecord, decryptedData interface{}, _ bool) error {
 	output := struct {
 		ID            int             `json:"id"`
 		ServerID      int             `json:"server_id"`

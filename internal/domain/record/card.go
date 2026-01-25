@@ -75,8 +75,8 @@ func isValidExpiry(month, year string) bool {
 
 	expYear := 0
 	expMonth := 0
-	fmt.Sscanf(year, "%d", &expYear)
-	fmt.Sscanf(month, "%d", &expMonth)
+	_, _ = fmt.Sscanf(year, "%d", &expYear)
+	_, _ = fmt.Sscanf(month, "%d", &expMonth)
 
 	if expYear < currentYear {
 		return false
