@@ -4,7 +4,7 @@ package auth
 import (
 	"context"
 	"fmt"
-	"gophkeeper/cmd/client/cmd/types"
+	"gophkeeper/cmd/client/cmd/clientctx"
 	"gophkeeper/internal/app/client"
 	"os"
 	"time"
@@ -26,7 +26,7 @@ var LoginCmd = &cobra.Command{
 	
 После входа токен сохраняется локально для последующих операций.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		app := cmd.Context().Value(types.ClientAppKey).(*client.App)
+		app := cmd.Context().Value(clientctx.ClientAppKey).(*client.App)
 		if app == nil {
 			return fmt.Errorf("приложение не инициализировано")
 		}

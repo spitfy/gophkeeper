@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-type RecordItem struct {
+type Item struct {
 	ID           int             `json:"id"`
 	Type         RecType         `json:"type"`
 	Meta         json.RawMessage `json:"meta"`
@@ -14,6 +14,6 @@ type RecordItem struct {
 }
 
 type ListResponse struct {
-	Records []RecordItem `json:"records"`
-	Total   int          `json:"total"`
+	Records []Item `json:"records"`
+	Total   int    `json:"total"`
 }

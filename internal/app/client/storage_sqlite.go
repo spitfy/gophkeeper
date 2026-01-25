@@ -8,7 +8,7 @@ import (
 
 	"gophkeeper/internal/domain/record"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" //nolint
 )
 
 type SQLiteStorage struct {

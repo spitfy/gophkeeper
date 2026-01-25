@@ -1,14 +1,14 @@
 package health
 
-// healthCheckInput represents the input for health check endpoint
-type healthCheckInput struct{}
+// Input represents the input for health check endpoint
+type Input struct{}
 
-// healthCheckOutput represents the output for health check endpoint
-type healthCheckOutput struct {
-	Body HealthCheckResponse
+// Output represents the output for health check endpoint
+type Output struct {
+	Body Response
 }
 
-// HealthCheckResponse represents the health check response
-type HealthCheckResponse struct {
+// Response represents the health check response
+type Response struct {
 	Status string `json:"status" example:"OK" doc:"Health status of the service"`
 }

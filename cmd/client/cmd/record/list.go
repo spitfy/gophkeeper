@@ -4,7 +4,7 @@ package record
 import (
 	"encoding/json"
 	"fmt"
-	"gophkeeper/cmd/client/cmd/types"
+	"gophkeeper/cmd/client/cmd/clientctx"
 	"gophkeeper/internal/app/client"
 	"gophkeeper/internal/domain/record"
 	"os"
@@ -28,8 +28,8 @@ var ListCmd = &cobra.Command{
 	Long: `Просмотр списка всех записей с возможностью фильтрации по типу.
 	
 Поддерживается пагинация через флаги --limit и --offset.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		app := cmd.Context().Value(types.ClientAppKey).(*client.App)
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		app := cmd.Context().Value(clientctx.ClientAppKey).(*client.App)
 		if app == nil {
 			return fmt.Errorf("приложение не инициализировано")
 		}

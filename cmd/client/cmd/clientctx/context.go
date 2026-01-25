@@ -1,4 +1,4 @@
-package types
+package clientctx
 
 type contextKey string
 

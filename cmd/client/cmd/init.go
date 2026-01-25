@@ -22,7 +22,7 @@ var initCmd = &cobra.Command{
 	
 Мастер-ключ защищает все ваши данные. Убедитесь, что выбрали надежный пароль
 и сохранили его в безопасном месте. Без мастер-ключа восстановить данные невозможно.`,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		// Проверяем, не инициализирован ли уже клиент
 		if app.IsInitialized() {
 			fmt.Println("Клиент уже инициализирован.")
@@ -97,7 +97,7 @@ var unlockCmd = &cobra.Command{
 - Создания новых записей
 - Просмотра зашифрованных данных
 - Синхронизации с сервером`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		// Проверяем, инициализирован ли клиент
 		if !app.IsInitialized() {
 			return fmt.Errorf("клиент не инициализирован. Выполните: gophkeeper init")
@@ -137,7 +137,7 @@ var lockCmd = &cobra.Command{
 	
 После блокировки для работы с зашифрованными данными потребуется
 повторная разблокировка командой: gophkeeper unlock`,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		if !app.IsInitialized() {
 			return fmt.Errorf("клиент не инициализирован. Выполните: gophkeeper init")
 		}

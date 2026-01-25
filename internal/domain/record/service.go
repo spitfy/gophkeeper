@@ -121,9 +121,9 @@ func (s *Service) List(ctx context.Context, userID int) (ListResponse, error) {
 		return ListResponse{}, fmt.Errorf("list records: %w", err)
 	}
 
-	items := make([]RecordItem, len(records))
+	items := make([]Item, len(records))
 	for i, r := range records {
-		items[i] = RecordItem{
+		items[i] = Item{
 			ID:           r.ID,
 			Type:         r.Type,
 			Meta:         r.Meta,

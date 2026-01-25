@@ -23,11 +23,11 @@ func (h *Handler) SetupRoutes(api huma.API) {
 	huma.Register(api, h.healthCheckOp(), h.healthCheck)
 }
 
-func (h *Handler) healthCheck(ctx context.Context, input *healthCheckInput) (*healthCheckOutput, error) {
+func (h *Handler) healthCheck(_ context.Context, _ *Input) (*Output, error) {
 	h.log.Debug("health check request received")
 
-	return &healthCheckOutput{
-		Body: HealthCheckResponse{
+	return &Output{
+		Body: Response{
 			Status: "OK",
 		},
 	}, nil

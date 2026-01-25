@@ -27,7 +27,7 @@ func TestHandler_healthCheck(t *testing.T) {
 			middleware := huma.Middlewares{}
 			handler := NewHandler(log, middleware)
 			ctx := context.Background()
-			input := &healthCheckInput{}
+			input := &Input{}
 
 			// Act
 			output, err := handler.healthCheck(ctx, input)

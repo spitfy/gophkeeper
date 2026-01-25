@@ -148,6 +148,7 @@ func MaskSensitiveData(data string) string {
 }
 
 // secureRandInt возвращает криптографически безопасное случайное число
+// nolint
 func secureRandInt(max int) int {
 	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
 	if err != nil {

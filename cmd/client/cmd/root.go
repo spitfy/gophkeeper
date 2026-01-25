@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"gophkeeper/cmd/client/cmd/types"
+	"gophkeeper/cmd/client/cmd/clientctx"
 	"os"
 	"path/filepath"
 
@@ -72,7 +72,7 @@ func setupApp(cmd *cobra.Command, _ []string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	cmd.SetContext(context.WithValue(ctx, types.ClientAppKey, app))
+	cmd.SetContext(context.WithValue(ctx, clientctx.ClientAppKey, app))
 
 	return nil
 }
