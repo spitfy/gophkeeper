@@ -60,7 +60,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	encryptor := crypto.NewRecordEncryptor(masterKey)
 
 	// Инициализируем HTTP клиент
-	httpCl, err := NewHTTPClient(cfg, log)
+	httpCl, err := newHTTPClient(cfg, log)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка инициализации HTTP клиента: %w", err)
 	}
@@ -371,37 +371,6 @@ func (a *App) Login(ctx context.Context, req user.BaseRequest) (string, error) {
 
 	a.log.Info("Вход выполнен успешно", "login", req.Login)
 	return token, nil
-}
-
-func (a *App) reencryptLocalData(newMasterPassword string) error {
-	// Получаем все записи
-	records, err := a.storage.ListRecords(&RecordFilter{})
-	if err != nil {
-		return fmt.Errorf("ошибка получения записей: %w", err)
-	}
-
-	// Перешифровываем каждую запись
-	for _, rec := range records {
-		// Расшифровываем старым ключом
-		decryptedData, err := a.crypto.DecryptData([]byte(rec.EncryptedData))
-		if err != nil {
-			return fmt.Errorf("ошибка расшифровки данных записи %d: %w", rec.ID, err)
-		}
-
-		// Шифруем новым ключом
-		encryptedData, err := a.crypto.EncryptDataWithPassword(decryptedData, newMasterPassword)
-		if err != nil {
-			return fmt.Errorf("ошибка шифровки данных записи %d: %w", rec.ID, err)
-		}
-
-		// Обновляем запись
-		rec.EncryptedData = string(encryptedData)
-		if err := a.storage.UpdateRecord(rec); err != nil {
-			return fmt.Errorf("ошибка обновления записи %d: %w", rec.ID, err)
-		}
-	}
-
-	return nil
 }
 
 // ==================== Record Operations ====================
@@ -848,7 +817,7 @@ func (a *App) GetSyncService() *SyncService {
 }
 
 // GetSyncStatus получает статус синхронизации
-func (a *App) GetSyncStatus(ctx context.Context) (*sync.SyncStatus, error) {
+func (a *App) GetSyncStatus(ctx context.Context) (*sync.Status, error) {
 	return a.httpClient.GetSyncStatus(ctx)
 }
 

@@ -46,7 +46,7 @@ type MetaData interface {
 	Validate() error
 }
 
-type RecordVersion struct {
+type Version struct {
 	ID            int             `json:"id"`
 	RecordID      int             `json:"record_id"`
 	Version       int             `json:"version"`
@@ -54,13 +54,6 @@ type RecordVersion struct {
 	Meta          json.RawMessage `json:"meta"`
 	Checksum      string          `json:"checksum"`
 	CreatedAt     time.Time       `json:"created_at"`
-}
-
-// RecordWithStatus добавляет статус синхронизации
-type RecordWithStatus struct {
-	Record
-	SyncStatus string `json:"sync_status"`
-	DeviceID   string `json:"device_id,omitempty"`
 }
 
 // BatchUpdate представляет пакетное обновление записей

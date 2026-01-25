@@ -69,10 +69,6 @@ func (m *TextMeta) Validate() error {
 }
 
 func (m *TextMeta) ToJSON() ([]byte, error) {
-	// Автоматически считаем статистику если не заполнено
-	if m.WordCount == 0 && m.Preview == "" {
-		// Эти поля можно заполнить позже при обработке
-	}
 	return json.Marshal(m)
 }
 

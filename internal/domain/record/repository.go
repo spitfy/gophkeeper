@@ -25,6 +25,6 @@ type Repository interface {
 	GetStats(ctx context.Context, userID int) (map[string]interface{}, error)
 
 	// Вспомогательные методы
-	SaveVersion(ctx context.Context, version *RecordVersion) error
-	GetVersions(ctx context.Context, recordID int) ([]RecordVersion, error)
+	SaveVersion(ctx context.Context, version *Version) error
+	GetVersions(ctx context.Context, recordID int) ([]Version, error)
 }

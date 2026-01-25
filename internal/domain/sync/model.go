@@ -4,8 +4,8 @@ import (
 	"time"
 )
 
-// SyncStatus представляет статус синхронизации пользователя
-type SyncStatus struct {
+// Status представляет статус синхронизации пользователя
+type Status struct {
 	UserID       int       `json:"user_id"`
 	LastSyncTime time.Time `json:"last_sync_time"`
 	TotalRecords int       `json:"total_records"`
@@ -61,8 +61,8 @@ type Conflict struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// SyncStats статистика синхронизации
-type SyncStats struct {
+// Stats статистика синхронизации
+type Stats struct {
 	UserID          int       `json:"user_id"`
 	TotalSyncs      int       `json:"total_syncs"`
 	LastSync        time.Time `json:"last_sync"`

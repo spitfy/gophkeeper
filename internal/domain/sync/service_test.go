@@ -18,15 +18,15 @@ type MockRepository struct {
 	mock.Mock
 }
 
-func (m *MockRepository) GetSyncStatus(ctx context.Context, userID int) (*SyncStatus, error) {
+func (m *MockRepository) GetSyncStatus(ctx context.Context, userID int) (*Status, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*SyncStatus), args.Error(1)
+	return args.Get(0).(*Status), args.Error(1)
 }
 
-func (m *MockRepository) UpdateSyncStatus(ctx context.Context, status *SyncStatus) error {
+func (m *MockRepository) UpdateSyncStatus(ctx context.Context, status *Status) error {
 	args := m.Called(ctx, status)
 	return args.Error(0)
 }
@@ -127,12 +127,12 @@ func (m *MockRepository) BatchDeleteRecords(ctx context.Context, recordIDs []int
 	return args.Error(0)
 }
 
-func (m *MockRepository) GetSyncStats(ctx context.Context, userID int) (*SyncStats, error) {
+func (m *MockRepository) GetSyncStats(ctx context.Context, userID int) (*Stats, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*SyncStats), args.Error(1)
+	return args.Get(0).(*Stats), args.Error(1)
 }
 
 func (m *MockRepository) IncrementSyncStats(ctx context.Context, userID int, uploads, downloads int64) error {
@@ -187,13 +187,13 @@ func TestService_GetChanges(t *testing.T) {
 		},
 	}
 
-	status := &SyncStatus{
+	status := &Status{
 		UserID:       userID,
 		StorageUsed:  1000,
 		StorageLimit: config.StorageLimit,
 	}
 
-	stats := &SyncStats{
+	stats := &Stats{
 		TotalSyncs:      10,
 		LastSync:        time.Now(),
 		TotalConflicts:  2,
@@ -203,7 +203,7 @@ func TestService_GetChanges(t *testing.T) {
 
 	mockRepo.On("GetRecordsForSync", mock.Anything, userID, req.LastSyncTime, req.Limit, req.Offset).Return(records, nil)
 	mockRepo.On("GetSyncStatus", mock.Anything, userID).Return(status, nil)
-	mockRepo.On("UpdateSyncStatus", mock.Anything, mock.MatchedBy(func(s *SyncStatus) bool {
+	mockRepo.On("UpdateSyncStatus", mock.Anything, mock.MatchedBy(func(s *Status) bool {
 		return s.UserID == userID && s.SyncVersion > 0
 	})).Return(nil)
 	mockRepo.On("GetSyncStats", mock.Anything, userID).Return(stats, nil)
@@ -286,7 +286,7 @@ func TestService_ProcessBatch(t *testing.T) {
 		Records: records,
 	}
 
-	status := &SyncStatus{
+	status := &Status{
 		UserID:       userID,
 		StorageUsed:  0,
 		StorageLimit: config.StorageLimit,
@@ -301,7 +301,7 @@ func TestService_ProcessBatch(t *testing.T) {
 	mockRepo.On("SaveRecord", mock.Anything, mock.MatchedBy(func(r *RecordSync) bool {
 		return r.UserID == userID && r.ID == 2
 	})).Return(nil)
-	mockRepo.On("UpdateSyncStatus", mock.Anything, mock.MatchedBy(func(s *SyncStatus) bool {
+	mockRepo.On("UpdateSyncStatus", mock.Anything, mock.MatchedBy(func(s *Status) bool {
 		return s.UserID == userID && s.StorageUsed > 0
 	})).Return(nil)
 	mockRepo.On("IncrementSyncStats", mock.Anything, userID, int64(2), int64(0)).Return(nil)
@@ -341,7 +341,7 @@ func TestService_ProcessBatch_StorageLimitExceeded(t *testing.T) {
 		Records: records,
 	}
 
-	status := &SyncStatus{
+	status := &Status{
 		UserID:       userID,
 		StorageUsed:  50,
 		StorageLimit: config.StorageLimit,
@@ -364,7 +364,7 @@ func TestService_GetStatus(t *testing.T) {
 	service := NewService(mockRepo, logger, config)
 
 	userID := 123
-	status := &SyncStatus{
+	status := &Status{
 		UserID:       userID,
 		LastSyncTime: time.Now(),
 		TotalRecords: 10,
@@ -590,11 +590,11 @@ func TestService_GetChanges_LimitValidation(t *testing.T) {
 		},
 	}
 
-	status := &SyncStatus{
+	status := &Status{
 		UserID: userID,
 	}
 
-	stats := &SyncStats{}
+	stats := &Stats{}
 
 	tests := []struct {
 		name            string
@@ -638,7 +638,7 @@ func TestService_GetChanges_LimitValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo.On("GetRecordsForSync", mock.Anything, userID, tt.req.LastSyncTime, tt.expectedLimit, tt.req.Offset).Return(records, nil)
 			mockRepo.On("GetSyncStatus", mock.Anything, userID).Return(status, nil)
-			mockRepo.On("UpdateSyncStatus", mock.Anything, mock.AnythingOfType("*sync.SyncStatus")).Return(nil)
+			mockRepo.On("UpdateSyncStatus", mock.Anything, mock.AnythingOfType("*sync.Status")).Return(nil)
 			mockRepo.On("GetSyncStats", mock.Anything, userID).Return(stats, nil)
 
 			ctx := createContextWithUserID(userID)

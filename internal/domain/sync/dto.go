@@ -15,13 +15,13 @@ type GetChangesRequest struct {
 
 // GetChangesResponse ответ с изменениями
 type GetChangesResponse struct {
-	Status      string          `json:"status"`
-	Error       string          `json:"error,omitempty"`
-	Records     []RecordSync    `json:"records,omitempty"`
-	HasMore     bool            `json:"has_more,omitempty"`
-	ServerTime  time.Time       `json:"server_time,omitempty"`
-	SyncVersion int64           `json:"sync_version,omitempty"`
-	Stats       *SyncStatsBrief `json:"stats,omitempty"`
+	Status      string       `json:"status"`
+	Error       string       `json:"error,omitempty"`
+	Records     []RecordSync `json:"records,omitempty"`
+	HasMore     bool         `json:"has_more,omitempty"`
+	ServerTime  time.Time    `json:"server_time,omitempty"`
+	SyncVersion int64        `json:"sync_version,omitempty"`
+	Stats       *StatsBrief  `json:"stats,omitempty"`
 }
 
 // BatchSyncRequest запрос на пакетную синхронизацию
@@ -40,9 +40,9 @@ type BatchSyncResponse struct {
 
 // GetStatusResponse ответ со статусом синхронизации
 type GetStatusResponse struct {
-	Status string      `json:"status"`
-	Error  string      `json:"error,omitempty"`
-	Data   *SyncStatus `json:"data,omitempty"`
+	Status string  `json:"status"`
+	Error  string  `json:"error,omitempty"`
+	Data   *Status `json:"data,omitempty"`
 }
 
 // GetConflictsResponse ответ с конфликтами
@@ -79,8 +79,8 @@ type RemoveDeviceResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
-// SyncStatsBrief краткая статистика синхронизации
-type SyncStatsBrief struct {
+// StatsBrief краткая статистика синхронизации
+type StatsBrief struct {
 	TotalSyncs      int     `json:"total_syncs"`
 	LastSuccessful  string  `json:"last_successful,omitempty"`
 	AvgSyncDuration float64 `json:"avg_sync_duration"`

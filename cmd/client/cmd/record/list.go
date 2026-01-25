@@ -8,7 +8,6 @@ import (
 	"gophkeeper/internal/app/client"
 	"gophkeeper/internal/domain/record"
 	"os"
-	"strconv"
 	"text/tabwriter"
 	"time"
 
@@ -103,8 +102,8 @@ func printRecordsTable(records []*client.LocalRecord) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "ID\tServer ID\tТип\tНазвание\tСтатус\tСоздано\tОбновлено\t\n")
-	fmt.Fprintf(w, "---\t---\t---\t---\t---\t---\t---\t\n")
+	_, _ = fmt.Fprintf(w, "ID\tServer ID\tТип\tНазвание\tСтатус\tСоздано\tОбновлено\t\n")
+	_, _ = fmt.Fprintf(w, "---\t---\t---\t---\t---\t---\t---\t\n")
 
 	for _, rec := range records {
 		status := "Активна"
@@ -122,7 +121,7 @@ func printRecordsTable(records []*client.LocalRecord) error {
 			}
 		}
 
-		fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t\n",
+		_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t\n",
 			rec.ID,
 			rec.ServerID,
 			string(rec.Type),
@@ -133,7 +132,7 @@ func printRecordsTable(records []*client.LocalRecord) error {
 		)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 	fmt.Printf("\nВсего записей: %d\n", len(records))
 	return nil
 }
@@ -175,10 +174,6 @@ func printRecordsCSV(records []*client.LocalRecord) error {
 	}
 
 	return nil
-}
-
-func shortID(id int) string {
-	return strconv.Itoa(id)
 }
 
 func truncate(s string, length int) string {

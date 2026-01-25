@@ -8,8 +8,8 @@ import (
 // Repository интерфейс для работы с синхронизацией
 type Repository interface {
 	// SyncMetadata методы
-	GetSyncStatus(ctx context.Context, userID int) (*SyncStatus, error)
-	UpdateSyncStatus(ctx context.Context, status *SyncStatus) error
+	GetSyncStatus(ctx context.Context, userID int) (*Status, error)
+	UpdateSyncStatus(ctx context.Context, status *Status) error
 	GetDeviceInfo(ctx context.Context, deviceID int) (*DeviceInfo, error)
 	RegisterDevice(ctx context.Context, device *DeviceInfo) error
 	UpdateDeviceSyncTime(ctx context.Context, deviceID int, syncTime time.Time) error
@@ -31,7 +31,7 @@ type Repository interface {
 	BatchDeleteRecords(ctx context.Context, recordIDs []int, userID int) error
 
 	// Statistics
-	GetSyncStats(ctx context.Context, userID int) (*SyncStats, error)
+	GetSyncStats(ctx context.Context, userID int) (*Stats, error)
 	IncrementSyncStats(ctx context.Context, userID int, uploads, downloads int64) error
 	RecordSyncDuration(ctx context.Context, userID int, duration time.Duration) error
 }

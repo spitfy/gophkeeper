@@ -3,7 +3,6 @@ package record
 import (
 	"encoding/json"
 	"gophkeeper/internal/domain/record"
-	"time"
 )
 
 type listOutput struct {
@@ -153,32 +152,4 @@ type createBinaryRequest struct {
 
 	// Common fields
 	DeviceID string `json:"device_id,omitempty" doc:"ID устройства"`
-}
-
-// ==================== Update types ====================
-
-type updateLoginInput struct {
-	ID   int `path:"id" example:"1" doc:"ID записи"`
-	Body createLoginRequest
-}
-
-type updateTextInput struct {
-	ID   int `path:"id" example:"1" doc:"ID записи"`
-	Body createTextRequest
-}
-
-type updateCardInput struct {
-	ID   int `path:"id" example:"1" doc:"ID записи"`
-	Body createCardRequest
-}
-
-type updateBinaryInput struct {
-	ID   int `path:"id" example:"1" doc:"ID записи"`
-	Body createBinaryRequest
-}
-
-// ==================== Helper types ====================
-
-type expiresAt struct {
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }

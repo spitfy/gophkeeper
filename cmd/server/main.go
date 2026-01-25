@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/exp/slog"
 	"gophkeeper/internal/app/server/api"
 	"gophkeeper/internal/app/server/config"
 	"gophkeeper/internal/infrastructure/migration"
@@ -13,6 +11,9 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/exp/slog"
 
 	"github.com/danielgtaylor/huma/v2/humacli"
 )

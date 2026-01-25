@@ -311,7 +311,7 @@ func (r *RecordRepository) GetStats(ctx context.Context, userID int) (map[string
 	return stats, nil
 }
 
-func (r *RecordRepository) SaveVersion(ctx context.Context, version *record.RecordVersion) error {
+func (r *RecordRepository) SaveVersion(ctx context.Context, version *record.Version) error {
 	const query = `
 		INSERT INTO record_versions (record_id, version, encrypted_data, meta, checksum)
 		VALUES ($1, $2, $3, $4, $5)`
@@ -327,7 +327,7 @@ func (r *RecordRepository) SaveVersion(ctx context.Context, version *record.Reco
 	return err
 }
 
-func (r *RecordRepository) GetVersions(ctx context.Context, recordID int) ([]record.RecordVersion, error) {
+func (r *RecordRepository) GetVersions(ctx context.Context, recordID int) ([]record.Version, error) {
 	const query = `
 		SELECT id, record_id, version, encrypted_data, meta, checksum, created_at
 		FROM record_versions
@@ -340,9 +340,9 @@ func (r *RecordRepository) GetVersions(ctx context.Context, recordID int) ([]rec
 	}
 	defer rows.Close()
 
-	var versions []record.RecordVersion
+	var versions []record.Version
 	for rows.Next() {
-		var v record.RecordVersion
+		var v record.Version
 		var data []byte
 
 		err := rows.Scan(&v.ID, &v.RecordID, &v.Version, &data, &v.Meta, &v.Checksum, &v.CreatedAt)

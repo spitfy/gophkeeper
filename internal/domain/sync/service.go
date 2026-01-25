@@ -120,7 +120,7 @@ func (s *Service) GetChanges(ctx context.Context, req GetChangesRequest) (*GetCh
 
 	// Добавляем статистику, если есть
 	if stats != nil {
-		response.Stats = &SyncStatsBrief{
+		response.Stats = &StatsBrief{
 			TotalSyncs:      stats.TotalSyncs,
 			AvgSyncDuration: stats.AvgSyncDuration,
 			TotalConflicts:  stats.TotalConflicts,

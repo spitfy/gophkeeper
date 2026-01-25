@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -31,7 +32,7 @@ func NewSyncRepository(pool *pgxpool.Pool, log *slog.Logger) *SyncRepository {
 }
 
 // GetSyncStatus возвращает статус синхронизации пользователя из VIEW
-func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.SyncStatus, error) {
+func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.Status, error) {
 	query := `
 		SELECT user_id, last_sync_time, total_records, device_count, 
 		       storage_used, storage_limit, sync_version
@@ -39,7 +40,7 @@ func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.S
 		WHERE user_id = $1
 	`
 
-	var status sync.SyncStatus
+	var status sync.Status
 	var lastSyncTime sql.NullTime
 
 	err := r.pool.QueryRow(ctx, query, userID).Scan(
@@ -55,7 +56,7 @@ func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.S
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// Возвращаем пустой статус для нового пользователя
-			return &sync.SyncStatus{
+			return &sync.Status{
 				UserID:       userID,
 				LastSyncTime: time.Time{},
 				TotalRecords: 0,
@@ -76,7 +77,7 @@ func (r *SyncRepository) GetSyncStatus(ctx context.Context, userID int) (*sync.S
 }
 
 // UpdateSyncStatus обновляет статус синхронизации (теперь это no-op, т.к. используется VIEW)
-func (r *SyncRepository) UpdateSyncStatus(_ context.Context, status *sync.SyncStatus) error {
+func (r *SyncRepository) UpdateSyncStatus(_ context.Context, status *sync.Status) error {
 	// VIEW автоматически вычисляет данные, ничего обновлять не нужно
 	r.log.Debug("UpdateSyncStatus called but using VIEW, no action needed", "user_id", status.UserID)
 	return nil
@@ -610,9 +611,9 @@ func (r *SyncRepository) BatchDeleteRecords(ctx context.Context, recordIDs []int
 }
 
 // GetSyncStats возвращает статистику синхронизации (заглушка, т.к. таблица удалена)
-func (r *SyncRepository) GetSyncStats(_ context.Context, userID int) (*sync.SyncStats, error) {
+func (r *SyncRepository) GetSyncStats(_ context.Context, userID int) (*sync.Stats, error) {
 	// Возвращаем пустую статистику
-	return &sync.SyncStats{
+	return &sync.Stats{
 		UserID:          userID,
 		TotalSyncs:      0,
 		LastSync:        time.Time{},

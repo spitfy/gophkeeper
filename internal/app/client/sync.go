@@ -17,14 +17,13 @@ import (
 
 // SyncService управляет синхронизацией данных между клиентом и сервером
 type SyncService struct {
-	app        *App
-	log        *slog.Logger
-	config     *SyncConfig
-	mu         gosync.RWMutex
-	lastSync   time.Time
-	isSyncing  bool
-	syncErrors []SyncError
-	stats      *SyncStats
+	app       *App
+	log       *slog.Logger
+	config    *SyncConfig
+	mu        gosync.RWMutex
+	lastSync  time.Time
+	isSyncing bool
+	stats     *SyncStats
 }
 
 // SyncConfig конфигурация синхронизации
@@ -261,7 +260,7 @@ func (s *SyncService) Sync(ctx context.Context) (*SyncResult, error) {
 }
 
 // preSyncChecks проверяет условия для синхронизации
-func (s *SyncService) preSyncChecks(ctx context.Context) error {
+func (s *SyncService) preSyncChecks(_ context.Context) error {
 	// 1. Проверяем, включена ли синхронизация
 	if !s.config.Enabled {
 		return fmt.Errorf("синхронизация отключена")
@@ -291,7 +290,7 @@ func (s *SyncService) preSyncChecks(ctx context.Context) error {
 }
 
 // getSyncMetadata получает метаданные синхронизации
-func (s *SyncService) getSyncMetadata(ctx context.Context) (*SyncMetadata, error) {
+func (s *SyncService) getSyncMetadata(_ context.Context) (*SyncMetadata, error) {
 	meta := &SyncMetadata{
 		ClientID:      s.app.config.ConfigDir, // Используем директорию конфига как ID клиента
 		ClientVersion: "1.0.0",
@@ -308,7 +307,7 @@ func (s *SyncService) getSyncMetadata(ctx context.Context) (*SyncMetadata, error
 }
 
 // getLocalChanges получает локальные изменения
-func (s *SyncService) getLocalChanges(ctx context.Context, meta *SyncMetadata) ([]*LocalRecord, error) {
+func (s *SyncService) getLocalChanges(_ context.Context, meta *SyncMetadata) ([]*LocalRecord, error) {
 	// Получаем записи, которые не синхронизированы или изменились после последней синхронизации
 	records, err := s.app.storage.GetRecordsModifiedAfter(meta.LastSyncTime, s.config.BatchSize)
 	if err != nil {
@@ -441,7 +440,7 @@ func (s *SyncService) checkRecordConflict(localRec, serverRec *LocalRecord) (*Lo
 		conflictType = "delete-edit"
 	} else if !localDeleted && serverDeleted {
 		conflictType = "edit-delete"
-	} else if localDeleted && serverDeleted {
+	} else if localDeleted {
 		// Обе стороны удалили запись - это не конфликт
 		return nil, nil
 	}
@@ -465,7 +464,7 @@ func (s *SyncService) checkRecordConflict(localRec, serverRec *LocalRecord) (*Lo
 }
 
 // resolveConflicts разрешает конфликты
-func (s *SyncService) resolveConflicts(ctx context.Context, conflicts []*LocalConflict) ([]*LocalConflict, error) {
+func (s *SyncService) resolveConflicts(_ context.Context, conflicts []*LocalConflict) ([]*LocalConflict, error) {
 	var resolvedConflicts []*LocalConflict
 
 	for _, conflict := range conflicts {
@@ -621,7 +620,7 @@ func (s *SyncService) uploadChanges(ctx context.Context, changes []*LocalRecord)
 }
 
 // applyServerChanges применяет изменения с сервера
-func (s *SyncService) applyServerChanges(ctx context.Context, changes []*LocalRecord) (int, []SyncError) {
+func (s *SyncService) applyServerChanges(_ context.Context, changes []*LocalRecord) (int, []SyncError) {
 	var errors []SyncError
 	downloaded := 0
 
@@ -672,7 +671,7 @@ func (s *SyncService) applyServerChanges(ctx context.Context, changes []*LocalRe
 }
 
 // updateSyncMetadata обновляет метаданные синхронизации
-func (s *SyncService) updateSyncMetadata(ctx context.Context) error {
+func (s *SyncService) updateSyncMetadata(_ context.Context) error {
 	meta := &SyncMetadata{
 		ClientID:      s.app.config.ConfigDir,
 		LastSyncTime:  time.Now(),

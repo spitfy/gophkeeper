@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"fmt"
+
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/exp/slog"
 )
@@ -34,7 +35,7 @@ func (s *Service) Register(ctx context.Context, login, password string) (int, er
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return 0, fmt.Errorf("Хэш пароля: %w", err)
+		return 0, fmt.Errorf("password hash: %w", err)
 	}
 
 	return s.repo.Create(ctx, login, string(hash))

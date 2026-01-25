@@ -35,7 +35,7 @@ type Servicer interface {
 	BatchCreate(ctx context.Context, userID int, records []CreateRequest) (BatchCreateResponse, error)
 	BatchUpdate(ctx context.Context, userID int, updates []UpdateRequest) (BatchUpdateResponse, error)
 	GetByType(ctx context.Context, userID int, recordType string) ([]Record, error)
-	GetVersions(ctx context.Context, userID, recordID int) ([]RecordVersion, error)
+	GetVersions(ctx context.Context, userID, recordID int) ([]Version, error)
 
 	CreateWithModels(
 		ctx context.Context,
@@ -245,7 +245,7 @@ func (s *Service) Delete(ctx context.Context, userID, recordID int) error {
 	}
 
 	// Save a version snapshot before deletion
-	version := &RecordVersion{
+	version := &Version{
 		RecordID:      recordID,
 		Version:       record.Version + 1,
 		EncryptedData: record.EncryptedData,
@@ -465,7 +465,7 @@ func (s *Service) GetByType(ctx context.Context, userID int, recordType string) 
 }
 
 // GetVersions returns version history for a record
-func (s *Service) GetVersions(ctx context.Context, userID, recordID int) ([]RecordVersion, error) {
+func (s *Service) GetVersions(ctx context.Context, userID, recordID int) ([]Version, error) {
 	// First verify ownership
 	_, err := s.repo.Get(ctx, userID, recordID)
 	if err != nil {

@@ -32,7 +32,7 @@ type httpClient struct {
 	userAgent string
 }
 
-func NewHTTPClient(cfg *config.Config, log *slog.Logger) (*httpClient, error) {
+func newHTTPClient(cfg *config.Config, log *slog.Logger) (*httpClient, error) {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
@@ -83,7 +83,9 @@ func (h *httpClient) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("сервер недоступен: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("сервер вернул статус: %d", resp.StatusCode)
@@ -166,7 +168,7 @@ func (h *httpClient) doRequestWithRetry(ctx context.Context, method, path string
 
 		if resp.StatusCode >= 500 {
 			// Серверные ошибки (5xx) - пробуем retry
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			lastErr = fmt.Errorf("сервер вернул ошибку: %d", resp.StatusCode)
 			h.log.Warn("Серверная ошибка, повторяем запрос",
 				"status", resp.StatusCode,
@@ -183,7 +185,9 @@ func (h *httpClient) doRequestWithRetry(ctx context.Context, method, path string
 }
 
 func (h *httpClient) parseResponse(resp *http.Response, result interface{}) error {
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -577,7 +581,7 @@ func (h *httpClient) SendBatchSync(ctx context.Context, req sync.BatchSyncReques
 }
 
 // GetSyncStatus получает статус синхронизации с сервера
-func (h *httpClient) GetSyncStatus(ctx context.Context) (*sync.SyncStatus, error) {
+func (h *httpClient) GetSyncStatus(ctx context.Context) (*sync.Status, error) {
 	resp, err := h.doRequest(ctx, "GET", "/api/sync/status", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)

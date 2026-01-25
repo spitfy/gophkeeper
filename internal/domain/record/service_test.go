@@ -85,12 +85,12 @@ func (m *MockRepository) GetByType(ctx context.Context, userID int, recordType s
 	return args.Get(0).([]Record), args.Error(1)
 }
 
-func (m *MockRepository) GetVersions(ctx context.Context, recordID int) ([]RecordVersion, error) {
+func (m *MockRepository) GetVersions(ctx context.Context, recordID int) ([]Version, error) {
 	args := m.Called(ctx, recordID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]RecordVersion), args.Error(1)
+	return args.Get(0).([]Version), args.Error(1)
 }
 
 func (m *MockRepository) GetByChecksum(ctx context.Context, userID int, checksum string) (*Record, error) {
@@ -101,7 +101,7 @@ func (m *MockRepository) GetByChecksum(ctx context.Context, userID int, checksum
 	return args.Get(0).(*Record), args.Error(1)
 }
 
-func (m *MockRepository) SaveVersion(ctx context.Context, version *RecordVersion) error {
+func (m *MockRepository) SaveVersion(ctx context.Context, version *Version) error {
 	args := m.Called(ctx, version)
 	return args.Error(0)
 }
@@ -336,7 +336,7 @@ func TestService_Delete(t *testing.T) {
 
 	mockRepo.On("Get", mock.Anything, 1, 1).Return(record, nil)
 	mockRepo.On("Delete", mock.Anything, 1, 1).Return(nil)
-	mockRepo.On("SaveVersion", mock.Anything, mock.AnythingOfType("*record.RecordVersion")).Return(nil)
+	mockRepo.On("SaveVersion", mock.Anything, mock.AnythingOfType("*record.Version")).Return(nil)
 
 	err := service.Delete(context.Background(), 1, 1)
 	assert.NoError(t, err)
@@ -705,7 +705,7 @@ func TestService_GetVersions(t *testing.T) {
 		LastModified: time.Now(),
 	}
 
-	versions := []RecordVersion{
+	versions := []Version{
 		{
 			ID:            1,
 			RecordID:      1,
