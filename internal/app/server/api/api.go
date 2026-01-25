@@ -79,7 +79,7 @@ func handlers(pool *pgxpool.Pool, log *slog.Logger) *Handlers {
 	userHandler := userAPI.NewHandler(userService, sessionService, log, middlewares.GetAllAndClear())
 
 	recordRepo := postgres.NewRecordRepository(pool, log)
-	recordFactory := record.NewRecordFactory()
+	recordFactory := record.NewFactory()
 	recordService := record.NewService(recordRepo, recordFactory, log)
 	middlewares.Add(authMW.Middleware())
 	middlewares.Add(loggerMW.Middleware())

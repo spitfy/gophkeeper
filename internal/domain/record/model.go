@@ -31,8 +31,8 @@ type BaseRecord struct {
 	DeviceID      string          `json:"device_id,omitempty"`
 }
 
-// RecordData - интерфейс для данных записи (до шифрования)
-type RecordData interface {
+// Data - интерфейс для данных записи (до шифрования)
+type Data interface {
 	GetType() RecType
 	Validate() error
 	ToJSON() ([]byte, error)

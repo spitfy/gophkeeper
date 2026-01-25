@@ -18,7 +18,7 @@ var ()
 // Service defines the business logic for record operations
 type Service struct {
 	repo    Repository
-	factory *RecordFactory
+	factory *Factory
 	log     *slog.Logger
 }
 
@@ -41,7 +41,7 @@ type Servicer interface {
 		ctx context.Context,
 		userID int,
 		typ RecType,
-		data RecordData,
+		data Data,
 		meta MetaData,
 		deviceID string,
 	) (int, error)
@@ -49,11 +49,11 @@ type Servicer interface {
 		ctx context.Context,
 		recordID int,
 		userID int,
-		data RecordData,
+		data Data,
 		meta MetaData,
 		deviceID string,
 	) error
-	GetRecordWithModels(ctx context.Context, recordID, userID int) (RecordData, MetaData, error)
+	GetRecordWithModels(ctx context.Context, recordID, userID int) (Data, MetaData, error)
 }
 
 type CreateRequest struct {
@@ -105,7 +105,7 @@ type TypeStats struct {
 }
 
 // NewService creates a new record service
-func NewService(repo Repository, factory *RecordFactory, log *slog.Logger) Servicer {
+func NewService(repo Repository, factory *Factory, log *slog.Logger) Servicer {
 	return &Service{
 		repo:    repo,
 		factory: factory,
@@ -479,7 +479,7 @@ func (s *Service) CreateWithModels(
 	ctx context.Context,
 	userID int,
 	typ RecType,
-	data RecordData,
+	data Data,
 	meta MetaData,
 	deviceID string,
 ) (int, error) {
@@ -527,7 +527,7 @@ func (s *Service) CreateWithModels(
 }
 
 // GetRecordWithModels получает запись с парсингом в модели
-func (s *Service) GetRecordWithModels(ctx context.Context, recordID, userID int) (RecordData, MetaData, error) {
+func (s *Service) GetRecordWithModels(ctx context.Context, recordID, userID int) (Data, MetaData, error) {
 	record, err := s.repo.Get(ctx, recordID, userID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get record: %w", err)
@@ -556,7 +556,7 @@ func (s *Service) UpdateWithModels(
 	ctx context.Context,
 	recordID int,
 	userID int,
-	data RecordData,
+	data Data,
 	meta MetaData,
 	deviceID string,
 ) error {

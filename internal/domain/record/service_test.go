@@ -108,7 +108,7 @@ func (m *MockRepository) SaveVersion(ctx context.Context, version *Version) erro
 
 func TestService_List(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -143,7 +143,7 @@ func TestService_List(t *testing.T) {
 
 func TestService_Create(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -167,7 +167,7 @@ func TestService_Create(t *testing.T) {
 
 func TestService_Create_InvalidData(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -184,7 +184,7 @@ func TestService_Create_InvalidData(t *testing.T) {
 
 func TestService_Find(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -207,7 +207,7 @@ func TestService_Find(t *testing.T) {
 
 func TestService_Find_NotFound(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -222,7 +222,7 @@ func TestService_Find_NotFound(t *testing.T) {
 
 func TestService_Find_Deleted(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -247,7 +247,7 @@ func TestService_Find_Deleted(t *testing.T) {
 
 func TestService_Update(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -282,7 +282,7 @@ func TestService_Update(t *testing.T) {
 
 func TestService_Update_NotFound(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -297,7 +297,7 @@ func TestService_Update_NotFound(t *testing.T) {
 
 func TestService_Update_Deleted(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -322,7 +322,7 @@ func TestService_Update_Deleted(t *testing.T) {
 
 func TestService_Delete(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -346,7 +346,7 @@ func TestService_Delete(t *testing.T) {
 
 func TestService_Delete_NotFound(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -361,7 +361,7 @@ func TestService_Delete_NotFound(t *testing.T) {
 
 func TestService_SoftDelete(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -384,7 +384,7 @@ func TestService_SoftDelete(t *testing.T) {
 
 func TestService_SoftDelete_AlreadyDeleted(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -408,7 +408,7 @@ func TestService_SoftDelete_AlreadyDeleted(t *testing.T) {
 
 func TestService_Search(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -437,7 +437,7 @@ func TestService_Search(t *testing.T) {
 
 func TestService_GetStats(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -472,7 +472,7 @@ func TestService_GetStats(t *testing.T) {
 
 func TestService_GetModifiedSince(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -499,7 +499,7 @@ func TestService_GetModifiedSince(t *testing.T) {
 
 func TestService_BatchCreate(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -534,7 +534,7 @@ func TestService_BatchCreate(t *testing.T) {
 
 func TestService_BatchCreate_WithErrors(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -571,7 +571,7 @@ func TestService_BatchCreate_WithErrors(t *testing.T) {
 
 func TestService_BatchUpdate(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -609,7 +609,7 @@ func TestService_BatchUpdate(t *testing.T) {
 
 func TestService_BatchUpdate_VersionMismatch(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -647,7 +647,7 @@ func TestService_BatchUpdate_VersionMismatch(t *testing.T) {
 
 func TestService_GenerateChecksum(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -668,7 +668,7 @@ func TestService_GenerateChecksum(t *testing.T) {
 
 func TestService_GetByType(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -693,7 +693,7 @@ func TestService_GetByType(t *testing.T) {
 
 func TestService_GetVersions(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 
@@ -728,7 +728,7 @@ func TestService_GetVersions(t *testing.T) {
 
 func TestService_GetVersions_NotFound(t *testing.T) {
 	mockRepo := new(MockRepository)
-	factory := NewRecordFactory()
+	factory := NewFactory()
 	logger := slog.Default()
 	service := NewService(mockRepo, factory, logger)
 

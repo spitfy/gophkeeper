@@ -5,16 +5,16 @@ import (
 	"fmt"
 )
 
-// RecordFactory - фабрика для создания моделей записей
-type RecordFactory struct{}
+// Factory - фабрика для создания моделей записей
+type Factory struct{}
 
-// NewRecordFactory создает новую фабрику
-func NewRecordFactory() *RecordFactory {
-	return &RecordFactory{}
+// NewFactory создает новую фабрику
+func NewFactory() *Factory {
+	return &Factory{}
 }
 
 // CreateData создает структуру данных для указанного типа
-func (f *RecordFactory) CreateData(typ RecType) (RecordData, error) {
+func (f *Factory) CreateData(typ RecType) (Data, error) {
 	switch typ {
 	case RecTypeLogin:
 		return &LoginData{}, nil
@@ -30,7 +30,7 @@ func (f *RecordFactory) CreateData(typ RecType) (RecordData, error) {
 }
 
 // CreateMeta создает структуру метаданных для указанного типа
-func (f *RecordFactory) CreateMeta(typ RecType) (MetaData, error) {
+func (f *Factory) CreateMeta(typ RecType) (MetaData, error) {
 	switch typ {
 	case RecTypeLogin:
 		return &LoginMeta{}, nil
@@ -46,7 +46,7 @@ func (f *RecordFactory) CreateMeta(typ RecType) (MetaData, error) {
 }
 
 // ParseMeta парсит метаданные из JSON
-func (f *RecordFactory) ParseMeta(typ RecType, data []byte) (MetaData, error) {
+func (f *Factory) ParseMeta(typ RecType, data []byte) (MetaData, error) {
 	meta, err := f.CreateMeta(typ)
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func (f *RecordFactory) ParseMeta(typ RecType, data []byte) (MetaData, error) {
 }
 
 // ParseData парсит данные из JSON
-func (f *RecordFactory) ParseData(typ RecType, data []byte) (RecordData, error) {
+func (f *Factory) ParseData(typ RecType, data []byte) (Data, error) {
 	recordData, err := f.CreateData(typ)
 	if err != nil {
 		return nil, err
@@ -74,7 +74,7 @@ func (f *RecordFactory) ParseData(typ RecType, data []byte) (RecordData, error) 
 }
 
 // ValidateRecordData валидирует данные записи
-func (f *RecordFactory) ValidateRecordData(typ RecType, data []byte) error {
+func (f *Factory) ValidateRecordData(typ RecType, data []byte) error {
 	recordData, err := f.ParseData(typ, data)
 	if err != nil {
 		return err
@@ -84,7 +84,7 @@ func (f *RecordFactory) ValidateRecordData(typ RecType, data []byte) error {
 }
 
 // ValidateMetaData валидирует метаданные
-func (f *RecordFactory) ValidateMetaData(typ RecType, data []byte) error {
+func (f *Factory) ValidateMetaData(typ RecType, data []byte) error {
 	meta, err := f.ParseMeta(typ, data)
 	if err != nil {
 		return err
@@ -94,7 +94,7 @@ func (f *RecordFactory) ValidateMetaData(typ RecType, data []byte) error {
 }
 
 // PrepareRecord подготавливает запись к сохранению
-func (f *RecordFactory) PrepareRecord(typ RecType, data RecordData, meta MetaData) (*Record, error) {
+func (f *Factory) PrepareRecord(typ RecType, data Data, meta MetaData) (*Record, error) {
 	// Валидация данных
 	if err := data.Validate(); err != nil {
 		return nil, fmt.Errorf("data validation failed: %w", err)
@@ -129,7 +129,7 @@ func (f *RecordFactory) PrepareRecord(typ RecType, data RecordData, meta MetaDat
 }
 
 // GetDefaultMeta возвращает метаданные по умолчанию для типа
-func (f *RecordFactory) GetDefaultMeta(typ RecType) (MetaData, error) {
+func (f *Factory) GetDefaultMeta(typ RecType) (MetaData, error) {
 	meta, err := f.CreateMeta(typ)
 	if err != nil {
 		return nil, err
