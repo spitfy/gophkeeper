@@ -29,7 +29,6 @@ func (l *Logger) Middleware() func(huma.Context, func(huma.Context)) {
 		remoteAddr := ctx.RemoteAddr()
 		contentType := ctx.Header("Content-Type")
 
-		// Вызываем следующий обработчик
 		next(ctx)
 
 		duration := time.Since(start)

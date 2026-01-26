@@ -1,0 +1,23 @@
+dir: ./mocks
+recursive: true
+
+packages:
+  gophkeeper/internal/domain/record:
+    config:
+      dir: ./mocks/record
+      pkgname: service_mock
+    interfaces:
+      Servicer:
+        config:
+          structname: RecordServicerMock
+          filename: "record_servicer_mock.go"
+
+  gophkeeper/internal/ports:
+    config:
+      dir: ./mocks/huma
+      pkgname: mocks
+    interfaces:
+      HumaContext:
+        config:
+          structname: HumaContextMock
+          filename: "huma_context_mock.go"

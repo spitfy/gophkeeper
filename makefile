@@ -50,3 +50,10 @@ test-coverage-html:
 test-coverage-total:
 	@go test -coverprofile=$(COVERAGE_FILE) ./... > /dev/null 2>&1
 	@go tool cover -func=$(COVERAGE_FILE) | grep total | awk '{print $$3}'
+
+mocks:
+	mockery --config .mockery.yaml
+
+check-mocks:
+	mockery --config .mockery.yaml
+	git diff --exit-code
